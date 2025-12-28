@@ -1,105 +1,54 @@
-// terminal module handles terminal related operations
 use crate::tui::drawing::Draw;
 use crossterm::{
-    cursor::{ MoveTo, position },
+    cursor::{MoveTo, position, Hide, Show, EnableBlinking, DisableBlinking},
     execute,
-    terminal::{ Clear, ClearType, disable_raw_mode, enable_raw_mode, DisableLineWrap },
+    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, DisableLineWrap},
 };
 use std::io::stdout;
 
 pub struct Terminal;
 
 impl Terminal {
-    pub fn initialize() {
-        match enable_raw_mode() {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to enable raw mode: {error:#?}");
-                return;
-            }
-        }
-        
-        match execute!(stdout(), DisableLineWrap) {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to disable line wrap: {error:#?}");
-                return;
-            }
-        }
-
-        match Self::clear_screen() {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to clear screen: {error:#?}");
-                return;
-            }
-        }
-
-        match Draw::draw_margin() {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to margin: {error:#?}");
-                return;
-            }
-        }
-
-        match Draw::draw_footer() {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to draw footer: {error:#?}");
-                return;
-            }
-        }
-
-        match Self::move_cursor_to(4, 0) {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to move cursor: {error:#?}");
-                return;
-            }
-        }
+    pub fn initialize() -> Result<(), std::io::Error> {
+        enable_raw_mode()?;
+        execute!(stdout(), DisableLineWrap, Hide)?;
+        // hide cursor
+        let _ = execute!(stdout(), Hide);
+        Self::clear_screen()?;
+        Draw::draw_margin()?;
+        Draw::draw_footer()?;
+        // show cursor
+        let _ = execute!(stdout(), Show);
+        let _ = execute!(stdout(), EnableBlinking);
+        Self::move_cursor_to(4, 0)?;
+        Ok(())
     }
 
-    pub fn terminate() {
-        match disable_raw_mode() {
-            Ok(_) => {}
-            Err(error) => eprintln!("Failed to disable raw mode: {error:#?}"),
-        }
-
-        match Self::clear_screen() {
-            Ok(_) => {}
-            Err(error) => eprintln!("Failed to clear screen: {error:#?}"),
-        }
-
-        match Self::move_cursor_to(0, 0) {
-            Ok(_) => {}
-            Err(error) => {
-                eprintln!("Failed to move cursor: {error:#?}");
-                return;
-            }
-        }
-
+    pub fn terminate() -> Result<(), std::io::Error> {
+        // hide cursor
+        let _ = execute!(stdout(), DisableBlinking);
+        execute!(stdout(), Hide)?;
+        disable_raw_mode()?;
+        Self::clear_screen()?;
+        // print Goodbye msg
+        Self::move_cursor_to(0, 0)?;
         println!("Goodbye.");
+        Ok(())
     }
 
     pub fn clear_screen() -> Result<(), std::io::Error> {
-        match execute!(stdout(), Clear(ClearType::All)) {
-            Ok(_) => Ok(()),
-            Err(error) => Err(error),
-        }
+        execute!(stdout(), Clear(ClearType::All))?;
+        Ok(())
     }
 
     fn move_cursor_to(x: u16, y: u16) -> Result<(), std::io::Error> {
-        match execute!(stdout(), MoveTo(x, y)) {
-            Ok(_) => Ok(()),
-            Err(error) => Err(error),
-        }
+        execute!(stdout(), MoveTo(x, y))?;
+        Ok(())
     }
 
     pub fn next_line() -> Result<(), std::io::Error> {
-        match execute!(stdout(), MoveTo(4, position().unwrap().1 + 1)) {
-            Ok(_) => Ok(()),
-            Err(error) => Err(error),
-        }
+        let (_, y) = position()?;
+        Self::move_cursor_to(4, y + 1)?;
+        Ok(())
     }
 }
