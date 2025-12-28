@@ -1,5 +1,5 @@
 // shortcuts module handles key events and resolves them into actions
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{ KeyCode, KeyEvent, KeyModifiers };
 use crate::core::actions::Action;
 
 pub struct Shortcuts;

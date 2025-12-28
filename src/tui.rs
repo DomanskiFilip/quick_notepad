@@ -5,7 +5,7 @@ mod terminal;
 
 use crate::core::actions::Action;
 use crate::core::shortcuts::Shortcuts;
-use crossterm::event::{Event::Key, KeyCode, read};
+use crossterm::event::{ Event::Key, KeyCode, KeyEventKind, read };
 use drawing::Draw;
 use main_error_wrapper::MainErrorWrapper;
 use terminal::Terminal;
@@ -33,19 +33,21 @@ impl TerminalEditor {
         // main program loop
         loop {
             if let Key(event) = read()? {
-                // Shortcuts resolves key events into actions
-                if let Some(action) = Shortcuts::resolve(&event) {
-                    // logic to handle actions
-                    match action {
-                        Action::NextLine => {
-                            let _ = Terminal::next_line();
-                        }
-                        Action::Quit => {
-                            self.quit_program = true;
-                        }
-                        Action::Print => {
-                            if let KeyCode::Char(character) = event.code {
-                                Draw::print_character(&character.to_string())
+                if event.kind == KeyEventKind::Press {
+                    // Shortcuts resolves key events into actions
+                    if let Some(action) = Shortcuts::resolve(&event) {
+                        // logic to handle actions
+                        match action {
+                            Action::NextLine => {
+                                let _ = Terminal::next_line();
+                            }
+                            Action::Quit => {
+                                self.quit_program = true;
+                            }
+                            Action::Print => {
+                                if let KeyCode::Char(character) = event.code {
+                                    Draw::print_character(&character.to_string())
+                                }
                             }
                         }
                     }

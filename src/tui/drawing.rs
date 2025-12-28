@@ -1,7 +1,7 @@
 // drawing module handles printing and other drawing operations
 use std::io::stdout;
 use crossterm::{
-    style::{Print, Color, SetForegroundColor, ResetColor},
+    style::{ Print, Color, SetForegroundColor, ResetColor },
     terminal::size,
     execute,
     cursor::MoveTo,
@@ -15,7 +15,7 @@ impl Draw {
         match size() {
             Ok((_width, height)) => {
                 // Print line numbers
-                for i in 0..height {
+                for i in 0..height - 1 {
                     match execute!(
                         stdout(),
                         MoveTo(0, i),
