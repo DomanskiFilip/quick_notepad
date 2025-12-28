@@ -1,6 +1,7 @@
 use crate::tui::drawing::Draw;
+use crate::tui::caret::Caret;
 use crossterm::{
-    cursor::{ DisableBlinking, EnableBlinking, Hide, MoveTo, Show, position, SetCursorStyle },
+    cursor::{ DisableBlinking, EnableBlinking, Hide, MoveTo, Show, position },
     queue,
     style::Print,
     terminal::{ Clear, ClearType, DisableLineWrap, disable_raw_mode, enable_raw_mode }
@@ -13,20 +14,9 @@ pub struct Position {
     pub y: u16,
 }
 
-// Cursor struct for cursor customisation
-pub struct Cursor {
-    pub color: &'static str,
-    pub style: SetCursorStyle,
-}
-
 pub struct Terminal;
 
 impl Terminal {
-    
-    const CURSOR_SETTINGS: Cursor = Cursor { 
-        color: "yellow", 
-        style: SetCursorStyle::BlinkingBar 
-    };
     
     // initialize tui
     pub fn initialize() -> Result<(), Error> {
@@ -35,8 +25,8 @@ impl Terminal {
         queue!(stdout(), DisableLineWrap, Hide)?;
         Self::clear_screen()?;
         // set cursor color
-        queue!(stdout(), Self::CURSOR_SETTINGS.style)?;
-        Self::set_cursor_color(Self::CURSOR_SETTINGS.color)?;
+        queue!(stdout(), Caret::CARET_SETTINGS.style)?;
+        Self::set_cursor_color(Caret::CARET_SETTINGS.color)?;
         Draw::draw_margin()?;
         Draw::draw_footer()?;
         queue!(stdout(), Show, EnableBlinking)?;
