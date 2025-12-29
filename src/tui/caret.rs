@@ -79,16 +79,17 @@ impl Caret {
         
         if self.position.x > 4 {
             self.position.x -= 1;
+            self.move_to(self.position)?;
         } else if self.position.y > 0 {
             self.position.x = size.width - 1;
             self.position.y -= 1;
+            self.move_to(self.position)?;
         } else if scroll_offset > 0 {
             self.position.x = size.width - 1;
             new_offset -= 1;
             needs_render = true;
         }
         
-        self.move_to(self.position)?;
         Ok((new_offset, needs_render))
     }
     
@@ -99,9 +100,11 @@ impl Caret {
         
         if self.position.x < size.width - 1 {
             self.position.x += 1;
+            self.move_to(self.position)?;
         } else if self.position.y < size.height - 2 {
             self.position.x = 4;
             self.position.y += 1;
+            self.move_to(self.position)?;
         } else {
             let max_scroll = max_lines.saturating_sub((size.height - 1) as usize);
             if scroll_offset < max_scroll {
@@ -111,7 +114,6 @@ impl Caret {
             }
         }
         
-        self.move_to(self.position)?;
         Ok((new_offset, needs_render))
     }
 
@@ -124,9 +126,9 @@ impl Caret {
             needs_render = true;
         } else if self.position.y > 0 {
             self.position.y -= 1;
+            self.move_to(self.position)?;
         }
         
-        self.move_to(self.position)?;
         Ok((new_offset, needs_render))
     }
 
@@ -143,9 +145,9 @@ impl Caret {
             }
         } else if self.position.y < size.height - 2 {
             self.position.y += 1;
+            self.move_to(self.position)?;
         }
         
-        self.move_to(self.position)?;
         Ok((new_offset, needs_render))
     }
 
