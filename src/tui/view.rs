@@ -25,11 +25,11 @@ impl View {
         let size = Terminal::get_size()?;
         let visible_rows = (size.height - 1) as usize;
         
-        Terminal::clear_screen()?;
-        
         for row in 0..visible_rows {
             let buffer_line_idx = row + self.scroll_offset;
             queue!(stdout(), MoveTo(0, row as u16))?;
+            Terminal::clear_rest_of_line()?;
+            
             self.draw_margin_line(row as u16, buffer_line_idx)?;
             
             if let Some(line) = self.buffer.lines.get(buffer_line_idx) {
@@ -64,7 +64,11 @@ impl View {
         
         queue!(
             stdout(),
-            MoveTo(0, footer_row), 
+            MoveTo(0, footer_row),
+        )?;
+        Terminal::clear_rest_of_line()?;
+        queue!(
+            stdout(),
             SetForegroundColor(Color::DarkGrey),
             Print("ctrl + q = quit |"),
             MoveTo(size.width / 2, footer_row),
@@ -109,11 +113,10 @@ impl View {
 
         self.render()?;
         
-        let new_x = pos.x + 1;
-        if new_x < size.width - 1 {
-            caret.move_to(Position { x: new_x, y: pos.y })?;
+        if pos.x + 1 < size.width - 1 {
+            caret.move_to(Position { x: pos.x + 1, y: pos.y })?;
         } else if pos.y < size.height - 2 {
-            caret.move_to(Position { x: 4, y: pos.y + 1 })?;
+            caret.next_line()?;
         }
         
         Ok(())
@@ -145,13 +148,10 @@ impl View {
 
         if pos.y >= size.height - 2 {
             self.scroll_offset += 1;
-            self.render()?;
-            caret.next_line()?;
-        } else {
-            self.render()?;
-            caret.next_line()?;
         }
         
+        self.render()?;
+        caret.next_line()?;
         Ok(())
     }
     
