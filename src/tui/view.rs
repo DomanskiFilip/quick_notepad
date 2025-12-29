@@ -67,7 +67,7 @@ impl View {
             MoveTo(0, 0),
             SetForegroundColor(Color::DarkYellow),
             MoveTo(size.width / 2, 0),
-            Print(" Welcome to Quick ".to_string()),
+            Print(" Quick Notepad ".to_string()),
             ResetColor
         )?;
         Terminal::clear_rest_of_line()?;
