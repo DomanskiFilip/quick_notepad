@@ -6,4 +6,4 @@ For this project I am planning to eventually replace nano/micro/vim I use on my 
 Hopefully I will make something like micro but able to run both in terminal and as a seperate app with custom highlighting for my needs.
 
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/74ae2248-706e-4970-ada4-f67a48003c86" />
-icon generated useing nano banana
+icon generated using nano banana
