@@ -21,7 +21,7 @@ pub struct Terminal;
 impl Terminal {
     
     // initialize tui
-    pub fn initialize(view: &View) -> Result<(), Error> {
+    pub fn initialize(view: &View, caret: &mut Caret) -> Result<(), Error> {
         enable_raw_mode()?;
         queue!(stdout(), DisableLineWrap, Hide)?;
         Self::clear_screen()?;
@@ -35,7 +35,7 @@ impl Terminal {
     
         queue!(stdout(), Show, EnableBlinking)?;
         // Start the cursor at the "text area" (after the margin)
-        Caret::move_caret_to(Position { x: 4, y: 0 })?;
+        caret.move_to(Position { x: 4, y: 0 })?;
         
         Self::execute()?;
         Ok(())
@@ -50,7 +50,7 @@ impl Terminal {
         // draw Godbye msg
         disable_raw_mode()?;
         Self::clear_screen()?;
-        Caret::move_caret_to(Position { x: 0, y: 0 })?;
+        queue!(stdout(), crossterm::cursor::MoveTo(0, 0))?;
         Self::execute()?;
         println!("Goodbye.");
         Ok(())

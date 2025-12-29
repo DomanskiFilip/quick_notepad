@@ -6,18 +6,15 @@ mod caret;
 
 use crate::core::actions::Action;
 use crate::core::shortcuts::Shortcuts;
-use crossterm::{
-    event::{ Event, KeyCode, KeyEventKind, read },
-    cursor::position,
-};
+use crossterm::event::{ Event, KeyCode, KeyEventKind, read };
 use main_error_wrapper::MainErrorWrapper;
 use view::View;
 use terminal::Terminal;
 use caret::Caret;
 
-
 pub struct TerminalEditor {
     view: View,
+    caret: Caret,
     quit_program: bool,
 }
 
@@ -25,52 +22,50 @@ impl TerminalEditor {
     pub fn default() -> Self {
         Self {
             view: View::default(),
+            caret: Caret::new(),
             quit_program: false,
         }
     }
     
     pub fn run(&mut self) {
-        // initialise tui
-        if let Err(error) = Terminal::initialize(&self.view) {
+        if let Err(error) = Terminal::initialize(&self.view, &mut self.caret) {
             eprintln!("Terminal Initialisation Failed: {:?}", error); 
         }
-        // runs main program loop with error wrapper
         MainErrorWrapper::handle_error(self.main_loop());
-        // terminate tui
         if let Err(error) = Terminal::terminate() {
             eprintln!("Terminal Termination Failed: {:?}", error); 
         }
     }
 
-    // main program loop
     fn main_loop(&mut self) -> Result<(), std::io::Error> {
         loop {
-            if let Event::Key(event) = read()? {
-                if event.kind == KeyEventKind::Press {
-                    // Shortcuts resolves key events into actions
-                    if let Some(action) = Shortcuts::resolve(&event) {
-                        // logic to handle actions
-                        match action {
-                            Action::Left => Caret::move_left()?,
-                            Action::Right => Caret::move_right()?,
-                            Action::Up => Caret::move_up()?,
-                            Action::Down => Caret::move_down()?,
-                            Action::Top => Caret::move_top()?,
-                            Action::Bottom => Caret::move_bottom()?,
-                            Action::MaxLeft => Caret::move_max_left()?,
-                            Action::MaxRight => Caret::move_max_right()?,
-                            Action::NextLine => self.view.insert_newline()?,
-                            Action::Quit => self.quit_program = true,
-                            Action::Print => {
-                                if let KeyCode::Char(character) = event.code {
-                                    // type/print character into buffer
-                                    self.view.type_character(character)?;
+            match read()? {
+                Event::Key(event) => {
+                    if event.kind == KeyEventKind::Press {
+                        if let Some(action) = Shortcuts::resolve(&event) {
+                            match action {
+                                Action::Left => self.view.move_left(&mut self.caret)?,
+                                Action::Right => self.view.move_right(&mut self.caret)?,
+                                Action::Up => self.view.move_up(&mut self.caret)?,
+                                Action::Down => self.view.move_down(&mut self.caret)?,
+                                Action::Top => self.view.move_top(&mut self.caret)?,
+                                Action::Bottom => self.view.move_bottom(&mut self.caret)?,
+                                Action::MaxLeft => self.view.move_max_left(&mut self.caret)?,
+                                Action::MaxRight => self.view.move_max_right(&mut self.caret)?,
+                                Action::NextLine => self.view.insert_newline(&mut self.caret)?,
+                                Action::Quit => self.quit_program = true,
+                                Action::Print => {
+                                    if let KeyCode::Char(character) = event.code {
+                                        self.view.type_character(character, &mut self.caret)?;
+                                    }
                                 }
                             }
+                            Terminal::execute()?;
                         }
-                        Terminal::execute()?;
                     }
-                }
+                },
+                Event::Resize(_, _) => self.view.handle_resize(&mut self.caret)?,
+                _ => {}
             }
 
             if self.quit_program { break; }

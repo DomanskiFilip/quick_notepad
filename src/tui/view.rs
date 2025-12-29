@@ -10,9 +10,9 @@ use crossterm::{
     cursor::MoveTo,
 };
 
-#[derive(Default)]
 pub struct View {
-    buffer: Buffer
+    buffer: Buffer,
+    scroll_offset: usize,
 }
 
 pub struct Buffer {
@@ -22,19 +22,17 @@ pub struct Buffer {
 impl View {
     
     pub fn render(&self) -> Result<(), Error> {
-        let (cur_x, cur_y) = crossterm::cursor::position()?;
-        let current_pos = Position { x: cur_x, y: cur_y };
         let size = Terminal::get_size()?;
+        let visible_rows = (size.height - 1) as usize;
         
-        for row in 0..size.height - 1 {
-            // Position cursor at start of row
-            queue!(stdout(), MoveTo(0, row))?;
-
-            // Draw Margin
-            self.draw_margin_line(row)?;
+        Terminal::clear_screen()?;
+        
+        for row in 0..visible_rows {
+            let buffer_line_idx = row + self.scroll_offset;
+            queue!(stdout(), MoveTo(0, row as u16))?;
+            self.draw_margin_line(row as u16, buffer_line_idx)?;
             
-            // Draw Buffer Content
-            if let Some(line) = self.buffer.lines.get(row as usize) {
+            if let Some(line) = self.buffer.lines.get(buffer_line_idx) {
                 let max_width = (size.width.saturating_sub(4)) as usize;
                 let truncated_line = if line.len() > max_width {
                     &line[..max_width]
@@ -45,21 +43,16 @@ impl View {
             }
         }
         
-        // Draw Footer
         self.draw_footer()?;
-
-        // Restore original cursor
-        Caret::move_caret_to(current_pos)?;
         Ok(())
     }
 
-    // Helper to draw a single margin line to keep render() clean
-    fn draw_margin_line(&self, row: u16) -> Result<(), Error> {
+    fn draw_margin_line(&self, row: u16, buffer_line_idx: usize) -> Result<(), Error> {
         queue!(
             stdout(),
             MoveTo(0, row),
             SetForegroundColor(Color::DarkGrey),
-            Print(format!("{:>3} ", row + 1)),
+            Print(format!("{:>3} ", buffer_line_idx + 1)),
             ResetColor
         )?;
         Ok(())
@@ -86,70 +79,161 @@ impl View {
         Ok(())
     }
     
-    pub fn type_character(&mut self, character: char) -> Result<(), Error> {
-        let (x, y) = crossterm::cursor::position()?;
+    pub fn type_character(&mut self, character: char, caret: &mut Caret) -> Result<(), Error> {
         let size = Terminal::get_size()?;
-        let y_idx = y as usize;
+        let pos = caret.get_position();
+        
+        if pos.y >= size.height - 1 {
+            return Ok(());
+        }
+        
+        let buffer_line_idx = pos.y as usize + self.scroll_offset;
 
-        // Ensure buffer is long enough
-        while self.buffer.lines.len() <= y_idx {
+        while self.buffer.lines.len() <= buffer_line_idx {
             self.buffer.lines.push(String::new());
         }
 
-        // If at end of screen, wrap
-        if x >= size.width - 1 {
-            self.insert_newline()?;
-            // Re-fetch position after wrap
-            return self.type_character(character);
+        let char_pos = (pos.x as usize).saturating_sub(4);
+        
+        if pos.x >= size.width - 1 {
+            self.insert_newline(caret)?;
+            return self.type_character(character, caret);
         }
 
-        // Insert character into data
-        let char_pos = (x as usize).saturating_sub(4);
-        let line = &mut self.buffer.lines[y_idx];
+        let line = &mut self.buffer.lines[buffer_line_idx];
         if char_pos <= line.len() {
             line.insert(char_pos, character);
         } else {
             line.push(character);
         }
 
-        // Move cursor and then render
         self.render()?;
-        Caret::move_right()?; 
+        
+        let new_x = pos.x + 1;
+        if new_x < size.width - 1 {
+            caret.move_to(Position { x: new_x, y: pos.y })?;
+        } else if pos.y < size.height - 2 {
+            caret.move_to(Position { x: 4, y: pos.y + 1 })?;
+        }
+        
         Ok(())
     }
     
-    pub fn insert_newline(&mut self) -> Result<(), Error> {
-        let (x, y) = crossterm::cursor::position()?;
-        let y_idx = y as usize;
-        let char_pos = (x as usize).saturating_sub(4);
+    pub fn insert_newline(&mut self, caret: &mut Caret) -> Result<(), Error> {
         let size = Terminal::get_size()?;
-
-        // Don't allow newlines on footer
-        if y >= size.height - 2 {
+        let pos = caret.get_position();
+        
+        if pos.y >= size.height - 1 {
             return Ok(());
         }
+        
+        let buffer_line_idx = pos.y as usize + self.scroll_offset;
+        let char_pos = (pos.x as usize).saturating_sub(4);
 
-        // ensure line exists
-        while self.buffer.lines.len() <= y_idx {
+        while self.buffer.lines.len() <= buffer_line_idx {
             self.buffer.lines.push(String::new());
         }
-        // Split the data
-        let current_line = &mut self.buffer.lines[y_idx];
+        
+        let current_line = &mut self.buffer.lines[buffer_line_idx];
         let new_line_content = if char_pos < current_line.len() {
             current_line.split_off(char_pos)
         } else {
             String::new()
         };
-        // Clear rest of line
-        Terminal::clear_rest_of_line()?;
-        // insert split into new line
-        self.buffer.lines.insert(y_idx + 1, new_line_content);
-
-        // Move cursor to new line position before rendering
-        Caret::next_line()?;
         
-        self.render()?;
+        self.buffer.lines.insert(buffer_line_idx + 1, new_line_content);
+
+        if pos.y >= size.height - 2 {
+            self.scroll_offset += 1;
+            self.render()?;
+            caret.move_to(Position { x: 4, y: pos.y })?;
+        } else {
+            self.render()?;
+            caret.move_to(Position { x: 4, y: pos.y + 1 })?;
+        }
+        
         Ok(())
+    }
+    
+    pub fn move_up(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        let (new_offset, needs_render) = caret.move_up(self.scroll_offset)?;
+        self.scroll_offset = new_offset;
+        if needs_render {
+            self.render()?;
+            caret.move_to(caret.get_position())?;
+        }
+        Ok(())
+    }
+    
+    pub fn move_down(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        let (new_offset, needs_render) = caret.move_down(self.scroll_offset, self.buffer.lines.len())?;
+        self.scroll_offset = new_offset;
+        if needs_render {
+            self.render()?;
+            caret.move_to(caret.get_position())?;
+        }
+        Ok(())
+    }
+    
+    pub fn move_left(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        let (new_offset, needs_render) = caret.move_left(self.scroll_offset)?;
+        self.scroll_offset = new_offset;
+        if needs_render {
+            self.render()?;
+            caret.move_to(caret.get_position())?;
+        }
+        Ok(())
+    }
+    
+    pub fn move_right(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        let (new_offset, needs_render) = caret.move_right(self.scroll_offset, self.buffer.lines.len())?;
+        self.scroll_offset = new_offset;
+        if needs_render {
+            self.render()?;
+            caret.move_to(caret.get_position())?;
+        }
+        Ok(())
+    }
+    
+    pub fn move_top(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        let (new_offset, needs_render) = caret.move_top()?;
+        self.scroll_offset = new_offset;
+        if needs_render {
+            self.render()?;
+            caret.move_to(caret.get_position())?;
+        }
+        Ok(())
+    }
+    
+    pub fn move_bottom(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        caret.move_bottom()?;
+        Ok(())
+    }
+    
+    pub fn move_max_left(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        caret.move_max_left()?;
+        Ok(())
+    }
+    
+    pub fn move_max_right(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        caret.move_max_right()?;
+        Ok(())
+    }
+    
+    pub fn handle_resize(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        caret.clamp_to_bounds()?;
+        self.render()?;
+        caret.move_to(caret.get_position())?;
+        Ok(())
+    }
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self {
+            buffer: Buffer::default(),
+            scroll_offset: 0,
+        }
     }
 }
 

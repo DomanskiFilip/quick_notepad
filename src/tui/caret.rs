@@ -1,7 +1,7 @@
 // caret module responsible for caret manipulation and settings
 use crate::tui::terminal::Terminal;
 use crossterm::{
-    cursor::{ position, SetCursorStyle, MoveTo },
+    cursor::{ SetCursorStyle, MoveTo },
     style::Print,
     queue,
 };
@@ -22,17 +22,25 @@ impl Default for Position {
 pub struct Caret {
     pub color: &'static str,
     pub style: SetCursorStyle,
+    position: Position,
 }
 
 impl Caret {
     pub const CARET_SETTINGS: Caret = Caret { 
         color: "yellow", 
-        style: SetCursorStyle::BlinkingBar
+        style: SetCursorStyle::BlinkingBar,
+        position: Position { x: 4, y: 0 },
     };
     
+    pub fn new() -> Self {
+        Self {
+            color: "yellow",
+            style: SetCursorStyle::BlinkingBar,
+            position: Position::default(),
+        }
+    }
+    
     pub fn set_caret_color(color: &str) -> Result<(), Error> {
-        // \x1b]12; is the start of the "Change Cursor Color" sequence
-        // \x07 is the string terminator (Bell character)
         queue!(stdout(), Print(format!("\x1b]12;{}\x07", color)))?;
         Ok(())
     }
@@ -42,87 +50,136 @@ impl Caret {
         Ok(())
     }
 
-    pub fn move_caret_to(pos: Position) -> Result<(), Error> {
+    pub fn move_to(&mut self, pos: Position) -> Result<(), Error> {
+        self.position = pos;
         queue!(stdout(), MoveTo(pos.x, pos.y))?;
-        Ok(())
-    }
-    
-    
-    pub fn next_line() -> Result<(), Error> {
-        let (_, y) = position()?;
-        let size = Terminal::get_size()?; 
-        Caret::move_caret_to(Position { x: 4, y: y + 1 })?;
-        if y + 1 == size.height - 1 {
-            Caret::move_caret_to(Position { x: 4, y: y })?;
-        }
         stdout().flush()?;
         Ok(())
     }
-
-    pub fn move_left() -> Result<(), Error> {
-        let (x, y) = position()?;
-        let size = Terminal::get_size()?;
     
-        if x > 4 {
-            Caret::move_caret_to(Position { x: x - 1, y: y })?;
-        } else if y > 0 {
-            Caret::move_caret_to(Position { x: size.width - 1, y: y - 1 })?;
-        }
-        Ok(())
+    pub fn get_position(&self) -> Position {
+        self.position
     }
     
-    pub fn move_right() -> Result<(), Error> {
-        let (x, y) = position()?;
-        let size = Terminal::get_size()?; 
+    pub fn next_line(&mut self) -> Result<(), Error> {
+        let size = Terminal::get_size()?;
+        
+        if self.position.y < size.height - 2 {
+            self.position.x = 4;
+            self.position.y += 1;
+            self.move_to(self.position)?;
+        }
+        Ok(())
+    }
+
+    pub fn move_left(&mut self, scroll_offset: usize) -> Result<(usize, bool), Error> {
+        let size = Terminal::get_size()?;
+        let mut new_offset = scroll_offset;
+        let mut needs_render = false;
+        
+        if self.position.x > 4 {
+            self.position.x -= 1;
+        } else if self.position.y > 0 {
+            self.position.x = size.width - 1;
+            self.position.y -= 1;
+        } else if scroll_offset > 0 {
+            self.position.x = size.width - 1;
+            new_offset -= 1;
+            needs_render = true;
+        }
+        
+        self.move_to(self.position)?;
+        Ok((new_offset, needs_render))
+    }
     
-        if x < size.width - 1 {
-            Caret::move_caret_to(Position { x: x + 1, y: y })?;
-        } else if y < size.height - 2 {
-            Caret::move_caret_to(Position { x: 4, y: y + 1 })?;
-        }
-        Ok(())
-    }
-
-    pub fn move_up() -> Result<(), Error> {
-        let (x, y) = position()?;
-        if y > 0 {
-            Caret::move_caret_to(Position { x, y: y - 1 })?;
-        }
-        Ok(())
-    }
-
-    pub fn move_down() -> Result<(), Error> {
-        let (x, y) = position()?;
-        let size = Terminal::get_size()?; 
-        if y < size.height - 2 { 
-            Caret::move_caret_to(Position { x, y: y + 1 })?;
-        }
-        Ok(())
-    }
-
-    pub fn move_top() -> Result<(), Error> {
-        let (x, _) = position()?;
-        Caret::move_caret_to(Position { x, y: 0 })?;
-        Ok(())
-    }
-
-    pub fn move_bottom() -> Result<(), Error> {
-        let (x, _) = position()?;
+    pub fn move_right(&mut self, scroll_offset: usize, max_lines: usize) -> Result<(usize, bool), Error> {
         let size = Terminal::get_size()?;
-        Caret::move_caret_to(Position { x, y: size.height - 2 })?;
-        Ok(())
+        let mut new_offset = scroll_offset;
+        let mut needs_render = false;
+        
+        if self.position.x < size.width - 1 {
+            self.position.x += 1;
+        } else if self.position.y < size.height - 2 {
+            self.position.x = 4;
+            self.position.y += 1;
+        } else {
+            let max_scroll = max_lines.saturating_sub((size.height - 1) as usize);
+            if scroll_offset < max_scroll {
+                self.position.x = 4;
+                new_offset += 1;
+                needs_render = true;
+            }
+        }
+        
+        self.move_to(self.position)?;
+        Ok((new_offset, needs_render))
     }
 
-    pub fn move_max_left() -> Result<(), Error> {
-        let (_, y) = position()?;
-        Caret::move_caret_to(Position { x: 4, y })?; 
-        Ok(())
+    pub fn move_up(&mut self, scroll_offset: usize) -> Result<(usize, bool), Error> {
+        let mut new_offset = scroll_offset;
+        let mut needs_render = false;
+        
+        if self.position.y == 0 && scroll_offset > 0 {
+            new_offset -= 1;
+            needs_render = true;
+        } else if self.position.y > 0 {
+            self.position.y -= 1;
+        }
+        
+        self.move_to(self.position)?;
+        Ok((new_offset, needs_render))
     }
 
-    pub fn move_max_right() -> Result<(), Error> {
-        let (_, y) = position()?;
+    pub fn move_down(&mut self, scroll_offset: usize, max_lines: usize) -> Result<(usize, bool), Error> {
         let size = Terminal::get_size()?;
-        Caret::move_caret_to(Position { x: size.width - 1, y })?;
+        let mut new_offset = scroll_offset;
+        let mut needs_render = false;
+        
+        if self.position.y >= size.height - 2 {
+            let max_scroll = max_lines.saturating_sub((size.height - 1) as usize);
+            if scroll_offset < max_scroll {
+                new_offset += 1;
+                needs_render = true;
+            }
+        } else if self.position.y < size.height - 2 {
+            self.position.y += 1;
+        }
+        
+        self.move_to(self.position)?;
+        Ok((new_offset, needs_render))
+    }
+
+    pub fn move_top(&mut self) -> Result<(usize, bool), Error> {
+        self.position.y = 0;
+        self.move_to(self.position)?;
+        Ok((0, true))
+    }
+
+    pub fn move_bottom(&mut self) -> Result<(), Error> {
+        let size = Terminal::get_size()?;
+        self.position.y = size.height - 2;
+        self.move_to(self.position)?;
+        Ok(())
+    }
+
+    pub fn move_max_left(&mut self) -> Result<(), Error> {
+        self.position.x = 4;
+        self.move_to(self.position)?;
+        Ok(())
+    }
+
+    pub fn move_max_right(&mut self) -> Result<(), Error> {
+        let size = Terminal::get_size()?;
+        self.position.x = size.width - 1;
+        self.move_to(self.position)?;
+        Ok(())
+    }
+    
+    pub fn clamp_to_bounds(&mut self) -> Result<(), Error> {
+        let size = Terminal::get_size()?;
+        self.position.x = self.position.x.min(size.width - 1).max(4);
+        self.position.y = self.position.y.min(size.height - 2);
+        self.move_to(self.position)?;
         Ok(())
     }
 }
