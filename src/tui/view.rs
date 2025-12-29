@@ -12,9 +12,9 @@ pub struct Size {
     pub width: u16,
 }
 
-pub struct Draw;
+pub struct View;
 
-impl Draw {
+impl View {
     pub fn get_size() -> Result<Size, Error> {
         let (width, height) = size()?;
         Ok(Size { width, height })

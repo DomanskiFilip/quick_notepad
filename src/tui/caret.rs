@@ -1,8 +1,8 @@
 use crate::tui::terminal::Terminal;
-use crate::tui::drawing::Draw;
+use crate::tui::view::View;
 use crate::tui::terminal::Position;
 use crossterm::cursor::{ position, SetCursorStyle };
-use std::io::Error;
+use std::io::{ stdout, Error, Write };
 
 pub struct Caret {
     pub color: &'static str,
@@ -14,10 +14,22 @@ impl Caret {
         color: "yellow", 
         style: SetCursorStyle::BlinkingBar
     };
+    
+    
+    pub fn next_line() -> Result<(), Error> {
+        let (_, y) = position()?;
+        let size = View::get_size()?; 
+        Terminal::move_cursor_to(Position { x: 4, y: y + 1 })?;
+        if y + 1 == size.height - 1 {
+            Terminal::move_cursor_to(Position { x: 4, y: y })?;
+        }
+        stdout().flush()?;
+        Ok(())
+    }
 
     pub fn move_left() -> Result<(), Error> {
         let (x, y) = position()?;
-        let size = Draw::get_size()?;
+        let size = View::get_size()?;
     
         if x > 4 {
             Terminal::move_cursor_to(Position { x: x - 1, y: y })?;
@@ -29,7 +41,7 @@ impl Caret {
     
     pub fn move_right() -> Result<(), Error> {
         let (x, y) = position()?;
-        let size = Draw::get_size()?; 
+        let size = View::get_size()?; 
     
         if x < size.width - 1 {
             Terminal::move_cursor_to(Position { x: x + 1, y: y })?;
@@ -49,7 +61,7 @@ impl Caret {
 
     pub fn move_down() -> Result<(), Error> {
         let (x, y) = position()?;
-        let size = Draw::get_size()?; 
+        let size = View::get_size()?; 
         if y < size.height - 2 { 
             Terminal::move_cursor_to(Position { x, y: y + 1 })?;
         }
@@ -64,7 +76,7 @@ impl Caret {
 
     pub fn move_bottom() -> Result<(), Error> {
         let (x, _) = position()?;
-        let size = Draw::get_size()?;
+        let size = View::get_size()?;
         Terminal::move_cursor_to(Position { x, y: size.height - 2 })?;
         Ok(())
     }
@@ -77,7 +89,7 @@ impl Caret {
 
     pub fn move_max_right() -> Result<(), Error> {
         let (_, y) = position()?;
-        let size = Draw::get_size()?;
+        let size = View::get_size()?;
         Terminal::move_cursor_to(Position { x: size.width - 1, y })?;
         Ok(())
     }

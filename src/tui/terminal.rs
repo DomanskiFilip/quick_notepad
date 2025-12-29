@@ -1,4 +1,4 @@
-use crate::tui::drawing::Draw;
+use crate::tui::view::View;
 use crate::tui::caret::Caret;
 use crossterm::{
     cursor::{ DisableBlinking, EnableBlinking, Hide, MoveTo, Show, position },
@@ -27,8 +27,8 @@ impl Terminal {
         // set cursor color
         queue!(stdout(), Caret::CARET_SETTINGS.style)?;
         Self::set_cursor_color(Caret::CARET_SETTINGS.color)?;
-        Draw::draw_margin()?;
-        Draw::draw_footer()?;
+        View::draw_margin()?;
+        View::draw_footer()?;
         queue!(stdout(), Show, EnableBlinking)?;
         Self::move_cursor_to(Position { x: 4, y: 0 })?;
         // Single flush to render everything at once
@@ -70,13 +70,6 @@ impl Terminal {
 
     pub fn move_cursor_to(pos: Position) -> Result<(), Error> {
         queue!(stdout(), MoveTo(pos.x, pos.y))?;
-        Ok(())
-    }
-
-    pub fn next_line() -> Result<(), Error> {
-        let (_, y) = position()?;
-        Self::move_cursor_to(Position { x: 4, y: y + 1 })?;
-        stdout().flush()?;
         Ok(())
     }
 

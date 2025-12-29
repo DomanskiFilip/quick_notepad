@@ -1,5 +1,5 @@
 // editor module handles the editor's state and logic
-mod drawing;
+mod view;
 mod main_error_wrapper;
 mod terminal;
 mod caret;
@@ -11,7 +11,7 @@ use crossterm::{
     cursor::position,
 };
 use main_error_wrapper::MainErrorWrapper;
-use drawing::Draw;
+use view::View;
 use terminal::Terminal;
 use caret::Caret;
 
@@ -57,20 +57,20 @@ impl TerminalEditor {
                             Action::Bottom => Caret::move_bottom()?,
                             Action::MaxLeft => Caret::move_max_left()?,
                             Action::MaxRight => Caret::move_max_right()?,
-                            Action::NextLine => Terminal::next_line()?,
+                            Action::NextLine => Caret::next_line()?,
                             Action::Quit => self.quit_program = true,
                             Action::Print => {
                                 if let KeyCode::Char(character) = event.code {
                                     let (x, _) = position()?;
-                                    let size = Draw::get_size()?;
+                                    let size = View::get_size()?;
                             
                                     // Check if we are at the very last column
                                     if x >= size.width - 1 {
                                         // Move to the next line
-                                        Terminal::next_line()?
+                                        Caret::next_line()?
                                     }
                                     
-                                    Draw::print_character(&character.to_string())?;
+                                    View::print_character(&character.to_string())?;
                                 }
                             }
                         }
