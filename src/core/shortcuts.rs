@@ -1,10 +1,21 @@
 // shortcuts module to handle key mappings
-use crossterm::event::{ KeyCode, KeyEvent, KeyModifiers };
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
 use crate::core::actions::Action;
 
-pub struct Shortcuts;
+pub struct Shortcuts {
+    last_click_time: std::time::Instant,
+    last_click_pos: Option<(u16, u16)>,
+    click_count: u8,
+}
 
 impl Shortcuts {
+    pub fn new() -> Self {
+        Self {
+            last_click_time: std::time::Instant::now(),
+            last_click_pos: None,
+            click_count: 0,
+        }
+    }
     /// THE ONE PLACE TO CHANGE SHORTCUTS
     /// Format: (KeyCode, Modifiers, Action, Description)
     fn get_mappings() -> Vec<(KeyCode, KeyModifiers, Action, &'static str)> {
@@ -26,19 +37,78 @@ impl Shortcuts {
             (KeyCode::Char('n'), KeyModifiers::CONTROL, Action::New, "New"),
         ]
     }
+        
+    pub fn resolve(&mut self, event: &KeyEvent) -> Option<Action> {
+        match (event.code, event.modifiers) {
+            // Movement with Shift = Selection
+            (KeyCode::Left, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectLeft),
+            (KeyCode::Right, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectRight),
+            (KeyCode::Up, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectUp),
+            (KeyCode::Down, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectDown),
+            (KeyCode::PageUp, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectTop),
+            (KeyCode::PageDown, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectBottom),
+            (KeyCode::Home, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectMaxLeft),
+            (KeyCode::End, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectMaxRight),
+            
+            // Regular movement (clears selection)
+            (KeyCode::Left, _) => Some(Action::Left),
+            (KeyCode::Right, _) => Some(Action::Right),
+            (KeyCode::Up, _) => Some(Action::Up),
+            (KeyCode::Down, _) => Some(Action::Down),
+            (KeyCode::PageUp, _) => Some(Action::Top),
+            (KeyCode::PageDown, _) => Some(Action::Bottom),
+            (KeyCode::Home, _) => Some(Action::MaxLeft),
+            (KeyCode::End, _) => Some(Action::MaxRight),
+            
+            (KeyCode::Enter, _) => Some(Action::NextLine),
+            (KeyCode::Backspace, _) => Some(Action::Backspace),
+            (KeyCode::Delete, _) => Some(Action::Delete),
+            (KeyCode::Char('g'), KeyModifiers::CONTROL) => Some(Action::ToggleCtrlShortcuts),
+            (KeyCode::Char('s'), KeyModifiers::CONTROL) => Some(Action::Save),
+            (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(Action::New),
+            (KeyCode::Char('q'), KeyModifiers::CONTROL) => Some(Action::Quit),
+            _ => Some(Action::Print),
+        }
+    }
     
-    pub fn resolve(event: &KeyEvent) -> Option<Action> {
-        // check mappings
-        for (code, mods, action, _) in Self::get_mappings() {
-            if event.code == code && event.modifiers.contains(mods) {
-                return Some(action);
-            }
+    pub fn resolve_mouse(&mut self, event: &MouseEvent) -> Option<Action> {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let now = std::time::Instant::now();
+                let pos = (event.column, event.row);
+                
+                // Detect double/triple click (within 500ms and same position)
+                if let Some(last_pos) = self.last_click_pos {
+                    if now.duration_since(self.last_click_time).as_millis() < 500 
+                        && last_pos == pos {
+                        self.click_count += 1;
+                    } else {
+                        self.click_count = 1;
+                    }
+                } else {
+                    self.click_count = 1;
+                }
+                
+                self.last_click_time = now;
+                self.last_click_pos = Some(pos);
+                
+                match self.click_count {
+                    2 => Some(Action::MouseDoubleClick(event.column, event.row)),
+                    3 => {
+                        self.click_count = 0; // Reset after triple
+                        Some(Action::MouseTripleClick(event.column, event.row))
+                    },
+                    _ => Some(Action::MouseDown(event.column, event.row)),
+                }
+            },
+            MouseEventKind::Drag(MouseButton::Left) => {
+                Some(Action::MouseDrag(event.column, event.row))
+            },
+            MouseEventKind::Up(MouseButton::Left) => {
+                Some(Action::MouseUp(event.column, event.row))
+            },
+            _ => None,
         }
-        // Fallback for typing characters
-        if let KeyCode::Char(_) = event.code {
-            return Some(Action::Print);
-        }
-        None
     }
     
     // Returns Ctrl shortcuts for footer display

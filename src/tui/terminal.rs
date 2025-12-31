@@ -4,6 +4,7 @@ use crate::tui::{
     caret::{ Position, Caret },
 };
 use crossterm::{
+    event::{EnableMouseCapture, DisableMouseCapture},
     cursor::{ DisableBlinking, EnableBlinking, Hide, Show },
     queue,
     terminal::{ 
@@ -25,13 +26,13 @@ impl Terminal {
     
     pub fn initialize(view: &View, caret: &mut Caret) -> Result<(), Error> {
         enable_raw_mode()?;
-        queue!(stdout(), EnterAlternateScreen, DisableLineWrap, Hide)?;
+        queue!(stdout(), EnterAlternateScreen, DisableLineWrap, Hide, EnableMouseCapture )?;
         Self::clear_screen()?;
         
         queue!(stdout(), Caret::CARET_SETTINGS.style)?;
         Caret::set_caret_color(Caret::CARET_SETTINGS.color)?;
     
-        view.render()?;
+        view.render(caret)?;
         queue!(stdout(), Show, EnableBlinking)?;
         caret.move_to(Position { x: Position::MARGIN, y: Position::HEADER })?;
         
@@ -41,7 +42,7 @@ impl Terminal {
 
     pub fn terminate() -> Result<(), Error> {
         Caret::reset_caret_color()?;
-        queue!(stdout(), DisableBlinking, Show, LeaveAlternateScreen)?;
+        queue!(stdout(), DisableBlinking, Show, LeaveAlternateScreen, DisableMouseCapture)?;
         disable_raw_mode()?;
         Self::execute()?;
         println!("Goodbye.");
