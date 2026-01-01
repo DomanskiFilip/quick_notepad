@@ -62,8 +62,12 @@ pub fn delete_selection(view: &mut View, caret: &mut Caret) -> Result<(), Error>
         
         // Move cursor to start of deleted range
         let (screen_x, screen_y) = super::helpers::text_to_screen_pos(view, start);
+        if start.line < view.scroll_offset {
+            view.scroll_offset = start.line;
+        }
         caret.move_to(Position { x: screen_x, y: screen_y })?;
         
+        view.needs_redraw = true;
         view.render(caret)?;
     }
     
@@ -150,6 +154,11 @@ fn delete_range(view: &mut View, start: TextPosition, end: TextPosition) -> Resu
         
         // Insert merged line
         view.buffer.lines.insert(start.line, merged_line);
+    }
+    
+    // Ensure the buffer is never truly empty
+    if view.buffer.lines.is_empty() {
+        view.buffer.lines.push(String::new());
     }
     
     Ok(())
