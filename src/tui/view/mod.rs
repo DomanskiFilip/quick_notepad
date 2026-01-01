@@ -139,6 +139,10 @@ impl View {
         selection::move_without_selection(self, direction, caret)
     }
     
+    pub fn select_all(&mut self, caret: &mut Caret) -> Result<(), Error> {
+        selection::select_all(self, caret)
+    }
+    
     pub fn handle_resize(&mut self, caret: &mut Caret) -> Result<(), Error> {
         caret.clamp_to_bounds()?;
         self.render(caret)?;

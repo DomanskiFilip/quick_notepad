@@ -4,7 +4,10 @@ mod main_error_wrapper;
 mod terminal;
 mod caret;
 
-use crate::core::{actions::Action, shortcuts::Shortcuts};
+use crate::core::{
+    actions::Action,
+    shortcuts::Shortcuts,
+};
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
 use main_error_wrapper::MainErrorWrapper;
 use view::{View, Buffer};
@@ -80,6 +83,7 @@ impl TerminalEditor {
                                 Action::SelectMaxLeft => self.view.move_with_selection("max_left", &mut self.caret)?,
                                 Action::SelectMaxRight => self.view.move_with_selection("max_right", &mut self.caret)?,
                                 
+                                Action::SelectAll => self.view.select_all(&mut self.caret)?,
                                 Action::NextLine => self.view.insert_newline(&mut self.caret)?,
                                 Action::Backspace => self.view.backspace(&mut self.caret)?,
                                 Action::Delete => self.view.delete_char(&mut self.caret)?,

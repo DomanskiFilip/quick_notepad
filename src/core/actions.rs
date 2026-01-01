@@ -18,6 +18,7 @@ pub enum Action {
     SelectBottom,
     SelectMaxLeft,
     SelectMaxRight,
+    SelectAll,
     
     // Mouse
     MouseDown(u16, u16),

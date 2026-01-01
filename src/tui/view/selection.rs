@@ -1,7 +1,10 @@
 // selection module responsible for handling selection logic shared between mouse and keyboard
 use super::{View, helpers};
-use crate::tui::{terminal::Terminal, caret::{Caret, Position}};
-use crate::core::selection::Selection;
+use crate::tui::{
+    terminal::Terminal,
+    caret::{Caret, Position},
+};
+use crate::core::selection::{Selection, TextPosition};
 use std::io::Error;
 
 pub fn move_with_selection(view: &mut View, direction: &str, caret: &mut Caret) -> Result<(), Error> {
@@ -162,5 +165,32 @@ fn perform_movement(view: &mut View, direction: &str, caret: &mut Caret) -> Resu
         },
         _ => {}
     }
+    Ok(())
+}
+
+pub fn select_all(view: &mut View, caret: &mut Caret) -> Result<(), Error> {
+    // Find last non-empty line
+    let last_line_idx = view.buffer.lines.iter()
+        .rposition(|line| !line.is_empty())
+        .unwrap_or(0);
+    
+    let last_line_len = view.buffer.lines.get(last_line_idx)
+        .map(|l| l.len())
+        .unwrap_or(0);
+    
+    // Create selection from start to end
+    let start = TextPosition { line: 0, column: 0 };
+    let end = TextPosition { line: last_line_idx, column: last_line_len };
+    
+    view.selection = Some(Selection {
+        anchor: start,
+        cursor: end,
+    });
+    
+    // Move caret to end position
+    let (screen_x, screen_y) = super::helpers::text_to_screen_pos(view, end);
+    caret.move_to(Position { x: screen_x, y: screen_y })?;
+    
+    view.render(caret)?;
     Ok(())
 }
