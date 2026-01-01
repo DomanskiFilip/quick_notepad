@@ -19,6 +19,7 @@ pub struct View {
     pub(in crate::tui::view) scroll_offset: usize,
     pub(in crate::tui::view) filename: Option<String>,
     pub(in crate::tui::view) show_shortcuts: bool,
+    pub(in crate::tui::view) needs_redraw: bool,
 }
 
 impl View {
@@ -30,6 +31,7 @@ impl View {
             show_shortcuts: false,
             selection: None,
             is_dragging: false,
+            needs_redraw: true,
         }
     }
     
@@ -39,100 +41,160 @@ impl View {
     
     pub fn toggle_ctrl_shortcuts(&mut self) {
         self.show_shortcuts = !self.show_shortcuts;
+        self.needs_redraw = true;
     }
     
-    // Rendering
+    // Keep render as immutable for compatibility
     pub fn render(&self, caret: &Caret) -> Result<(), Error> {
         render::render_view(self, caret)
     }
     
-    // Clipboard operations - Add these methods
+    // New method: render only if needed and clear the flag
+    pub fn render_if_needed(&mut self, caret: &Caret) -> Result<(), Error> {
+        if self.needs_redraw {
+            render::render_view(self, caret)?;
+            self.needs_redraw = false;
+        }
+        Ok(())
+    }
+    
+    // Clipboard operations
     pub fn copy_selection(&self) -> Result<(), Error> {
         clipboard::copy_selection(self)
     }
     
     pub fn cut_selection(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        clipboard::cut_selection(self, caret)
+        clipboard::cut_selection(self, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn paste_from_clipboard(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        clipboard::paste_from_clipboard(self, caret)
+        clipboard::paste_from_clipboard(self, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     // Mouse operations
     pub fn handle_mouse_down(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
-        mouse::handle_down(self, x, y, caret)
+        mouse::handle_down(self, x, y, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn handle_mouse_drag(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
-        mouse::handle_drag(self, x, y, caret)
+        mouse::handle_drag(self, x, y, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn handle_mouse_up(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
-        mouse::handle_up(self, x, y, caret)
+        mouse::handle_up(self, x, y, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn handle_double_click(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
-        mouse::handle_double_click(self, x, y, caret)
+        mouse::handle_double_click(self, x, y, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn handle_triple_click(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
-        mouse::handle_triple_click(self, x, y, caret)
+        mouse::handle_triple_click(self, x, y, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     // Keyboard operations
     pub fn type_character(&mut self, character: char, caret: &mut Caret) -> Result<(), Error> {
-        keyboard::type_character(self, character, caret)
+        keyboard::type_character(self, character, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn insert_newline(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        keyboard::insert_newline(self, caret)
+        keyboard::insert_newline(self, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn delete_char(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        keyboard::delete_char(self, caret)
+        keyboard::delete_char(self, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn backspace(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        keyboard::backspace(self, caret)
+        keyboard::backspace(self, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
-    // Movement operations
+    // Movement operations - only mark dirty if scroll changes
     pub fn move_up(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("up", caret)
+        let old_offset = self.scroll_offset;
+        self.move_without_selection("up", caret)?;
+        if self.scroll_offset != old_offset {
+            self.needs_redraw = true;
+        }
+        Ok(())
     }
     
     pub fn move_down(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("down", caret)
+        let old_offset = self.scroll_offset;
+        self.move_without_selection("down", caret)?;
+        if self.scroll_offset != old_offset {
+            self.needs_redraw = true;
+        }
+        Ok(())
     }
     
     pub fn move_left(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("left", caret)
+        let old_offset = self.scroll_offset;
+        self.move_without_selection("left", caret)?;
+        if self.scroll_offset != old_offset {
+            self.needs_redraw = true;
+        }
+        Ok(())
     }
     
     pub fn move_right(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("right", caret)
+        let old_offset = self.scroll_offset;
+        self.move_without_selection("right", caret)?;
+        if self.scroll_offset != old_offset {
+            self.needs_redraw = true;
+        }
+        Ok(())
     }
     
     pub fn move_top(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("top", caret)
+        self.move_without_selection("top", caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn move_bottom(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("bottom", caret)
+        self.move_without_selection("bottom", caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn move_max_left(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("max_left", caret)
+        self.move_without_selection("max_left", caret)?;
+        Ok(())
     }
     
     pub fn move_max_right(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        self.move_without_selection("max_right", caret)
+        self.move_without_selection("max_right", caret)?;
+        Ok(())
     }
     
-    // Selection operations
+    // Selection operations - always need redraw
     pub fn move_with_selection(&mut self, direction: &str, caret: &mut Caret) -> Result<(), Error> {
-        selection::move_with_selection(self, direction, caret)
+        selection::move_with_selection(self, direction, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn move_without_selection(&mut self, direction: &str, caret: &mut Caret) -> Result<(), Error> {
@@ -140,12 +202,15 @@ impl View {
     }
     
     pub fn select_all(&mut self, caret: &mut Caret) -> Result<(), Error> {
-        selection::select_all(self, caret)
+        selection::select_all(self, caret)?;
+        self.needs_redraw = true;
+        Ok(())
     }
     
     pub fn handle_resize(&mut self, caret: &mut Caret) -> Result<(), Error> {
         caret.clamp_to_bounds()?;
-        self.render(caret)?;
+        self.needs_redraw = true;
+        self.render_if_needed(caret)?;
         caret.move_to(caret.get_position())?;
         Ok(())
     }
@@ -184,6 +249,7 @@ impl Default for View {
             show_shortcuts: false,
             selection: None,
             is_dragging: false,
+            needs_redraw: true,
         }
     }
 }
@@ -196,24 +262,20 @@ pub(in crate::tui::view) mod helpers {
     pub fn screen_to_text_pos(view: &View, screen_x: u16, screen_y: u16) -> Result<TextPosition, Error> {
         let size = Terminal::get_size()?;
         
-        // Clamp to valid screen area (don't include footer)
         let y = screen_y.min(size.height.saturating_sub(2));
         
-        // Adjust for margin
         let x = if screen_x >= Position::MARGIN { 
             screen_x - Position::MARGIN 
         } else { 
             0 
         };
         
-        // Convert screen Y to buffer line index (accounting for header and scroll)
         let line_idx = if y >= Position::HEADER {
             (y - Position::HEADER) as usize + view.scroll_offset
         } else {
             0
         };
         
-        // Clamp to actual line length
         let max_col = if let Some(line) = view.buffer.lines.get(line_idx) {
             line.len()
         } else {
@@ -227,7 +289,6 @@ pub(in crate::tui::view) mod helpers {
     }
     
     pub fn text_to_screen_pos(view: &View, pos: TextPosition) -> (u16, u16) {
-        // Convert buffer line index to screen Y (accounting for header and scroll)
         let screen_y = if pos.line >= view.scroll_offset {
             Position::HEADER + (pos.line - view.scroll_offset) as u16
         } else {

@@ -24,7 +24,7 @@ pub struct Terminal;
 
 impl Terminal {
     
-    pub fn initialize(view: &View, caret: &mut Caret) -> Result<(), Error> {
+    pub fn initialize(view: &mut View, caret: &mut Caret) -> Result<(), Error> {
         enable_raw_mode()?;
         queue!(stdout(), EnterAlternateScreen, DisableLineWrap, Hide, EnableMouseCapture )?;
         Self::clear_screen()?;

@@ -36,7 +36,7 @@ impl TerminalEditor {
     }
     
     pub fn run(&mut self) {
-        if let Err(error) = Terminal::initialize(&self.view, &mut self.caret) {
+        if let Err(error) = Terminal::initialize(&mut self.view, &mut self.caret) {
             eprintln!("Terminal Initialisation Failed: {:?}", error); 
         }
         MainErrorWrapper::handle_error(self.main_loop());
