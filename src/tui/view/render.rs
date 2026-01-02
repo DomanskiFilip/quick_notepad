@@ -12,7 +12,7 @@ use crossterm::{
     cursor::MoveTo,
 };
 
-pub fn render_view(view: &View, caret: &Caret) -> Result<(), Error> {
+pub fn render_view(view: &View, caret: &Caret, is_dirty: bool) -> Result<(), Error> {
     let current_pos = caret.get_position();
     let size = Terminal::get_size()?;
     
@@ -54,7 +54,7 @@ pub fn render_view(view: &View, caret: &Caret) -> Result<(), Error> {
         }
     }
     
-    draw_footer(view, caret)?;
+    draw_footer(view, caret, is_dirty)?;
     
     // Restore cursor position
     queue!(stdout(), MoveTo(current_pos.x, current_pos.y))?;
@@ -86,7 +86,7 @@ fn draw_margin_line(row: u16, buffer_line_idx: usize) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn draw_footer(view: &View, caret: &Caret) -> Result<(), Error> {
+pub fn draw_footer(view: &View, caret: &Caret, is_dirty: bool) -> Result<(), Error> {
     let size = Terminal::get_size()?;
     let footer_row = size.height - 1;
     
@@ -104,28 +104,29 @@ pub fn draw_footer(view: &View, caret: &Caret) -> Result<(), Error> {
     if view.show_shortcuts {
         draw_shortcuts_footer()?;
     } else {
-        draw_info_footer(view, caret)?;
+        draw_info_footer(view, caret, is_dirty)?;
     }
     
     queue!(stdout(), ResetColor)?;
     Ok(())
 }
 
-fn draw_info_footer(view: &View, caret: &Caret) -> Result<(), Error> {
+fn draw_info_footer(view: &View, caret: &Caret, is_dirty: bool) -> Result<(), Error> {
     let current_pos = caret.get_position();
     
     let size = Terminal::get_size()?;
     let footer_row = size.height - 1;
     
-    // Left side: Filename or [No Name]
+    // Left side: Filename or [No Name] and modified tag
     queue!(stdout(), MoveTo(1, footer_row))?;
     let filename_display = view.filename.as_deref().unwrap_or("[No Name]");
+    let modified_tag = if is_dirty { "*" } else { "" };
     queue!(
         stdout(),
         SetBackgroundColor(Color::Black),
-        SetForegroundColor(Color::Yellow),
+        SetForegroundColor(if is_dirty { Color::Red } else { Color::Yellow }),
         SetAttribute(Attribute::Bold),
-        Print(format!(" {} ", filename_display)),
+        Print(format!(" {}{} ", filename_display, modified_tag)),
         SetAttribute(Attribute::Reset),
     )?;
     

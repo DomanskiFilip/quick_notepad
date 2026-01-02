@@ -8,7 +8,10 @@ mod clipboard;
 
 pub use buffer::Buffer;
 
-use crate::tui::{terminal::Terminal, caret::Caret};
+use crate::tui::{
+    terminal::Terminal,
+    caret::Caret
+};
 use crate::core::selection::{Selection, TextPosition};
 use crate::core::edit_history::EditOperation;
 use std::io::Error;
@@ -47,13 +50,13 @@ impl View {
     
     // Rendering
     pub fn render(&self, caret: &Caret) -> Result<(), Error> {
-        render::render_view(self, caret)
+        render::render_view(self, caret, false)
     }
     
-    // New method: render only if needed and clear the flag
-    pub fn render_if_needed(&mut self, caret: &Caret) -> Result<(), Error> {
+    // render only if needed and clear the flag
+    pub fn render_if_needed(&mut self, caret: &Caret, is_dirty: bool) -> Result<(), Error> {
         if self.needs_redraw {
-            render::render_view(self, caret)?;
+            render::render_view(self, caret, is_dirty)?;
             self.needs_redraw = false;
         }
         Ok(())
@@ -232,10 +235,10 @@ impl View {
         Ok(())
     }
     
-    pub fn handle_resize(&mut self, caret: &mut Caret) -> Result<(), Error> {
+    pub fn handle_resize(&mut self, caret: &mut Caret, is_dirty: bool) -> Result<(), Error> {
         caret.clamp_to_bounds()?;
         self.needs_redraw = true;
-        self.render_if_needed(caret)?;
+        self.render_if_needed(caret, is_dirty)?;
         caret.move_to(caret.get_position())?;
         Ok(())
     }
