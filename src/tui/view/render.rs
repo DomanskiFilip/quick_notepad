@@ -151,6 +151,16 @@ fn draw_info_footer(view: &View, caret: &Caret) -> Result<(), Error> {
         Print(stats),
     )?;
     
+    let credits = "© Filip Domanski";
+    queue!(
+        stdout(),
+        SetBackgroundColor(Color::Black),
+        SetForegroundColor(Color::Yellow),
+        SetAttribute(Attribute::Bold),
+        Print(format!(" {} ", credits)),
+        SetAttribute(Attribute::Reset),
+    )?;
+    
     // Middle: Lines and Characters count
     let counts = format!("Lines: {} | Chars: {} ", total_lines, total_chars);
     let counts_width = counts.len() as u16;
