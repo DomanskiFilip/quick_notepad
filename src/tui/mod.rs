@@ -7,9 +7,7 @@ pub mod view;
 use crate::core::{actions::Action, edit_history::EditHistory, shortcuts::Shortcuts};
 use caret::Caret;
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use main_error_wrapper::MainErrorWrapper;
-use std::io::{Write, stdin, stdout};
 use terminal::Terminal;
 use view::{Buffer, View};
 
@@ -294,81 +292,113 @@ impl TerminalEditor {
                 }
             }
         } else {
-            // Prompt for filename (Save As) by temporarily disabling raw mode so the user can type.
-            // read a line from stdin, re-enable raw mode and attempt to save.
+            // Show SaveAs prompt in footer and capture keys until Enter/Esc.
             use std::fs;
 
-            // Ensure footer is up-to-date before prompting
+            // Show prompt in footer
+            self.view
+                .show_prompt(crate::tui::view::PromptKind::SaveAs, "Save as:".to_string());
             self.view.needs_redraw = true;
             self.view
                 .render_if_needed(&self.caret, self.has_unsaved_changes)?;
             Terminal::execute()?;
 
-            // Temporarily disable raw mode so normal stdin reads work
-            disable_raw_mode()?;
+            // Event loop to capture prompt input (keeps editor in raw mode)
+            loop {
+                match read()? {
+                    Event::Key(event) if event.kind == KeyEventKind::Press => {
+                        match event.code {
+                            KeyCode::Char(c) => {
+                                // append typed character to prompt input
+                                self.view.append_prompt_char(c);
+                            }
+                            KeyCode::Backspace => {
+                                self.view.backspace_prompt();
+                            }
+                            KeyCode::Enter => {
+                                // On Enter, take current prompt input and attempt save
+                                if let Some((_kind, _msg, input)) = self.view.get_prompt() {
+                                    let filename = input.to_string();
+                                    // Clear prompt immediately (UI will update)
+                                    self.view.clear_prompt();
 
-            // Print prompt to the user (simple inline prompt)
-            let mut out = stdout();
-            write!(out, "\nSave as: ")?;
-            out.flush()?;
+                                    if filename.is_empty() {
+                                        // nothing entered -> cancel
+                                        break;
+                                    }
 
-            // Read filename from stdin
-            let mut input = String::new();
-            stdin().read_line(&mut input)?;
-            let filename = input.trim().to_string();
+                                    // Set filename and write file
+                                    self.view.set_filename(filename.clone());
 
-            // Re-enable raw mode and re-render editor
-            enable_raw_mode()?;
-            self.view.needs_redraw = true;
+                                    // Find last non-empty line to avoid saving empty buffer space
+                                    let last_line = self
+                                        .view
+                                        .buffer
+                                        .lines
+                                        .iter()
+                                        .rposition(|line| !line.is_empty())
+                                        .unwrap_or(0);
 
-            if filename.is_empty() {
-                // User entered nothing - abort save
-                self.view
-                    .render_if_needed(&self.caret, self.has_unsaved_changes)?;
-                Terminal::execute()?;
-            } else {
-                // Set filename and write file
-                self.view.set_filename(filename.clone());
+                                    // Get only the actual content lines
+                                    let content_lines: Vec<String> = self
+                                        .view
+                                        .buffer
+                                        .lines
+                                        .iter()
+                                        .take(last_line + 1)
+                                        .cloned()
+                                        .collect();
 
-                // Find last non-empty line to avoid saving empty buffer space
-                let last_line = self
-                    .view
-                    .buffer
-                    .lines
-                    .iter()
-                    .rposition(|line| !line.is_empty())
-                    .unwrap_or(0);
+                                    // Join with newlines
+                                    let content = content_lines.join("\n");
 
-                // Get only the actual content lines
-                let content_lines: Vec<String> = self
-                    .view
-                    .buffer
-                    .lines
-                    .iter()
-                    .take(last_line + 1)
-                    .cloned()
-                    .collect();
+                                    // Write to file
+                                    match fs::write(&filename, content) {
+                                        Ok(_) => {
+                                            self.has_unsaved_changes = false;
+                                            self.view.needs_redraw = true;
+                                            self.view.render_if_needed(
+                                                &self.caret,
+                                                self.has_unsaved_changes,
+                                            )?;
+                                            Terminal::execute()?;
+                                        }
+                                        Err(e) => {
+                                            // Show error in prompt footer so it's visible to user
+                                            self.view.show_prompt(
+                                                crate::tui::view::PromptKind::Error,
+                                                format!("Failed to save: {}", e),
+                                            );
+                                            self.view.needs_redraw = true;
+                                            self.view.render_if_needed(
+                                                &self.caret,
+                                                self.has_unsaved_changes,
+                                            )?;
+                                            Terminal::execute()?;
+                                            return Err(e);
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            KeyCode::Esc => {
+                                // Cancel prompt
+                                self.view.clear_prompt();
+                                self.view.needs_redraw = true;
+                                self.view
+                                    .render_if_needed(&self.caret, self.has_unsaved_changes)?;
+                                Terminal::execute()?;
+                                break;
+                            }
+                            _ => {}
+                        }
 
-                // Join with newlines
-                let content = content_lines.join("\n");
-
-                // Write to file
-                match fs::write(&filename, content) {
-                    Ok(_) => {
-                        self.has_unsaved_changes = false;
-
-                        // Mark for redraw to update footer status
-                        self.view.needs_redraw = true;
+                        // Re-render footer after each key handled
                         self.view
                             .render_if_needed(&self.caret, self.has_unsaved_changes)?;
                         Terminal::execute()?;
                     }
-                    Err(e) => {
-                        // TODO: Show error in footer
-                        self.view.needs_redraw = true;
-                        Terminal::execute()?;
-                        return Err(e);
-                    }
+                    _ => {}
                 }
             }
         }
