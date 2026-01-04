@@ -14,7 +14,7 @@ use crate::tui::{caret::Caret, terminal::Terminal};
 use std::io::Error;
 
 // Prompt kind describes the intent of the footer prompt.
-pub(in crate::tui) enum PromptKind {
+pub(crate) enum PromptKind {
     SaveAs,
     Error,
     // Input,
