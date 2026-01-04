@@ -41,4 +41,5 @@ pub enum Action {
     Print,
     Undo,
     Redo,
+    Search,
 }

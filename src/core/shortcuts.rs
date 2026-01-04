@@ -41,6 +41,7 @@ impl Shortcuts {
             (KeyCode::Char('a'), KeyModifiers::CONTROL, Action::SelectAll, "Select all"),
             (KeyCode::Char('z'), KeyModifiers::CONTROL, Action::Undo, "Undo"),
             (KeyCode::Char('y'), KeyModifiers::CONTROL, Action::Redo, "Redo"),
+            (KeyCode::Char('f'), KeyModifiers::CONTROL, Action::Search, "Search"),
         ]
     }
         
@@ -79,6 +80,7 @@ impl Shortcuts {
             (KeyCode::Char('a'), KeyModifiers::CONTROL) => Some(Action::SelectAll),
             (KeyCode::Char('z'), KeyModifiers::CONTROL) => Some(Action::Undo),
             (KeyCode::Char('y'), KeyModifiers::CONTROL) => Some(Action::Redo),
+            (KeyCode::Char('f'), KeyModifiers::CONTROL) => Some(Action::Search),
             (KeyCode::Char(_c), m) if m.is_empty() || m == KeyModifiers::SHIFT => Some(Action::Print),
             _ => None,
         }

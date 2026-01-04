@@ -4,14 +4,12 @@ mod main_error_wrapper;
 mod terminal;
 pub mod view;
 
-use crate::core::{
-    actions::Action,
-    edit_history::EditHistory,
-    shortcuts::Shortcuts
-};
+use crate::core::{actions::Action, edit_history::EditHistory, shortcuts::Shortcuts};
 use caret::Caret;
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use main_error_wrapper::MainErrorWrapper;
+use std::io::{Write, stdin, stdout};
 use terminal::Terminal;
 use view::{Buffer, View};
 
@@ -68,6 +66,11 @@ impl TerminalEditor {
                                 // Save
                                 Action::Save => {
                                     self.save_file()?;
+                                }
+
+                                // Search in text
+                                Action::Search => {
+                                    self.view.search()?;
                                 }
 
                                 // Clipboard operations
@@ -171,7 +174,8 @@ impl TerminalEditor {
                                 }
                                 _ => {}
                             }
-                            self.view.render_if_needed(&self.caret, self.has_unsaved_changes)?;
+                            self.view
+                                .render_if_needed(&self.caret, self.has_unsaved_changes)?;
                             Terminal::execute()?;
                         }
                     }
@@ -199,7 +203,9 @@ impl TerminalEditor {
                         Terminal::execute()?;
                     }
                 }
-                Event::Resize(_, _) => self.view.handle_resize(&mut self.caret, self.has_unsaved_changes)?,
+                Event::Resize(_, _) => self
+                    .view
+                    .handle_resize(&mut self.caret, self.has_unsaved_changes)?,
                 _ => {}
             }
             if self.quit_program {
@@ -217,7 +223,8 @@ impl TerminalEditor {
             // Restore cursor and scroll position
             self.view.scroll_offset = operation.scroll_before;
             self.view.needs_redraw = true;
-            self.view.render_if_needed(&self.caret,  self.has_unsaved_changes)?;
+            self.view
+                .render_if_needed(&self.caret, self.has_unsaved_changes)?;
             self.caret.move_to(operation.cursor_before)?;
 
             self.has_unsaved_changes = true;
@@ -233,7 +240,8 @@ impl TerminalEditor {
             // Restore cursor and scroll position
             self.view.scroll_offset = operation.scroll_after;
             self.view.needs_redraw = true;
-            self.view.render_if_needed(&self.caret, self.has_unsaved_changes)?;
+            self.view
+                .render_if_needed(&self.caret, self.has_unsaved_changes)?;
             self.caret.move_to(operation.cursor_after)?;
 
             self.has_unsaved_changes = true;
@@ -271,10 +279,11 @@ impl TerminalEditor {
             match fs::write(filename, content) {
                 Ok(_) => {
                     self.has_unsaved_changes = false;
-                    
+
                     // Mark for redraw to update footer status
                     self.view.needs_redraw = true;
-                    self.view.render_if_needed(&self.caret,  self.has_unsaved_changes)?;
+                    self.view
+                        .render_if_needed(&self.caret, self.has_unsaved_changes)?;
                     Terminal::execute()?;
                 }
                 Err(e) => {
@@ -285,7 +294,83 @@ impl TerminalEditor {
                 }
             }
         } else {
-            // TODO: Implement "Save As" dialog for unnamed files
+            // Prompt for filename (Save As) by temporarily disabling raw mode so the user can type.
+            // read a line from stdin, re-enable raw mode and attempt to save.
+            use std::fs;
+
+            // Ensure footer is up-to-date before prompting
+            self.view.needs_redraw = true;
+            self.view
+                .render_if_needed(&self.caret, self.has_unsaved_changes)?;
+            Terminal::execute()?;
+
+            // Temporarily disable raw mode so normal stdin reads work
+            disable_raw_mode()?;
+
+            // Print prompt to the user (simple inline prompt)
+            let mut out = stdout();
+            write!(out, "\nSave as: ")?;
+            out.flush()?;
+
+            // Read filename from stdin
+            let mut input = String::new();
+            stdin().read_line(&mut input)?;
+            let filename = input.trim().to_string();
+
+            // Re-enable raw mode and re-render editor
+            enable_raw_mode()?;
+            self.view.needs_redraw = true;
+
+            if filename.is_empty() {
+                // User entered nothing - abort save
+                self.view
+                    .render_if_needed(&self.caret, self.has_unsaved_changes)?;
+                Terminal::execute()?;
+            } else {
+                // Set filename and write file
+                self.view.set_filename(filename.clone());
+
+                // Find last non-empty line to avoid saving empty buffer space
+                let last_line = self
+                    .view
+                    .buffer
+                    .lines
+                    .iter()
+                    .rposition(|line| !line.is_empty())
+                    .unwrap_or(0);
+
+                // Get only the actual content lines
+                let content_lines: Vec<String> = self
+                    .view
+                    .buffer
+                    .lines
+                    .iter()
+                    .take(last_line + 1)
+                    .cloned()
+                    .collect();
+
+                // Join with newlines
+                let content = content_lines.join("\n");
+
+                // Write to file
+                match fs::write(&filename, content) {
+                    Ok(_) => {
+                        self.has_unsaved_changes = false;
+
+                        // Mark for redraw to update footer status
+                        self.view.needs_redraw = true;
+                        self.view
+                            .render_if_needed(&self.caret, self.has_unsaved_changes)?;
+                        Terminal::execute()?;
+                    }
+                    Err(e) => {
+                        // TODO: Show error in footer
+                        self.view.needs_redraw = true;
+                        Terminal::execute()?;
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         Ok(())

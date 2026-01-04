@@ -83,6 +83,13 @@ impl View {
         Ok(result)
     }
     
+    // Search in text
+    pub fn search(&mut self) -> Result<(), Error> {
+        // search::search(self)?;
+        self.needs_redraw = true;
+        Ok(())
+    }
+    
     // Mouse operations
     pub fn handle_mouse_down(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
         mouse::handle_down(self, x, y, caret)?;
