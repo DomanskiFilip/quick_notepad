@@ -271,27 +271,27 @@ fn draw_prompt_footer(view: &View, _caret: &Caret) -> Result<(), Error> {
     // Move to content start
     queue!(stdout(), MoveTo(1, footer_row))?;
 
-    if let Some(p) = &view.prompt {
+    if let Some(prompt) = &view.prompt {
         // Use local paths for enum to avoid needing extra imports
-        match &p.kind {
+        match &prompt.kind {
             super::PromptKind::SaveAs => {
                 queue!(
                     stdout(),
-                    SetForegroundColor(Color::Yellow),
+                    SetForegroundColor(Color::DarkYellow),
                     SetAttribute(Attribute::Bold),
-                    Print(format!("{}{}", p.message, p.input)),
+                    Print(format!("{}{}", prompt.message, prompt.input)),
                 )?;
                 draw_esc_hint(size.width, footer_row)?;
             }
             super::PromptKind::Search => {
                 queue!(
                     stdout(),
-                    SetForegroundColor(Color::Yellow),
+                    SetForegroundColor(Color::DarkYellow),
                     SetAttribute(Attribute::Bold),
-                    Print(format!(" {} ", p.message)),
+                    Print(format!(" {} ", prompt.message)),
                     SetAttribute(Attribute::Reset),
                     SetForegroundColor(Color::White),
-                    Print(&p.input),
+                    Print(&prompt.input),
                 )?;
                 draw_esc_hint(size.width, footer_row)?;
             }
@@ -303,7 +303,7 @@ fn draw_prompt_footer(view: &View, _caret: &Caret) -> Result<(), Error> {
                     Print(" 🔍 "),
                     SetAttribute(Attribute::Reset),
                     SetForegroundColor(Color::White),
-                    Print(&p.message),
+                    Print(&prompt.message),
                 )?;
                 draw_esc_hint(size.width, footer_row)?;
             }
@@ -312,7 +312,7 @@ fn draw_prompt_footer(view: &View, _caret: &Caret) -> Result<(), Error> {
                     stdout(),
                     SetForegroundColor(Color::Red),
                     SetAttribute(Attribute::Bold),
-                    Print(format!(" {} ", p.message)),
+                    Print(format!(" {} ", prompt.message)),
                     SetAttribute(Attribute::Reset),
                 )?;
             }
@@ -386,7 +386,7 @@ fn draw_esc_hint(screen_width: u16, footer_row: u16) -> Result<(), Error> {
     queue!(
         stdout(),
         MoveTo(hint_pos, footer_row),
-        SetForegroundColor(Color::Yellow),
+        SetForegroundColor(Color::DarkYellow),
         SetAttribute(Attribute::Italic),
         Print(hint),
         SetAttribute(Attribute::Reset),
