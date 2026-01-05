@@ -1,4 +1,5 @@
 // buffer module responsible for buffer size
+#[derive(Clone)]
 pub struct Buffer {
     pub lines: Vec<String>,
 }
@@ -6,11 +7,8 @@ pub struct Buffer {
 impl Buffer {
     // handle loading a file
     pub fn from_string(content: String) -> Self {
-        let mut lines: Vec<String> = content
-            .lines()
-            .map(|line| line.to_string())
-            .collect();
-        
+        let mut lines: Vec<String> = content.lines().map(|line| line.to_string()).collect();
+
         // Ensure there is at least one line if the file is empty
         if lines.is_empty() {
             lines.push(String::new());

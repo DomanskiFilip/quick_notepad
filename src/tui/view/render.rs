@@ -186,8 +186,8 @@ fn draw_info_footer(view: &View, caret: &Caret, is_dirty: bool) -> Result<(), Er
         Print(counts),
     )?;
 
-    // Right side: Help hint
-    let hint = " Press Ctrl + g for shortcuts ";
+    // Right side: Tab hint - show "Ctrl+1-9 for tabs" or actual tab info if we have tab_manager
+    let hint = " Ctrl+1-9 for tabs | Ctrl+g for shortcuts ";
     let hint_width = hint.len() as u16;
     let hint_pos = size.width.saturating_sub(hint_width + 1);
     queue!(

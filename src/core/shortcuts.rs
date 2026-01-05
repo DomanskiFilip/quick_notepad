@@ -16,6 +16,7 @@ impl Shortcuts {
             click_count: 0,
         }
     }
+
     /// THE ONE PLACE TO CHANGE SHORTCUTS
     /// Format: (KeyCode, Modifiers, Action, Description)
     fn get_mappings() -> Vec<(KeyCode, KeyModifiers, Action, &'static str)> {
@@ -81,7 +82,42 @@ impl Shortcuts {
             (KeyCode::Char('z'), KeyModifiers::CONTROL) => Some(Action::Undo),
             (KeyCode::Char('y'), KeyModifiers::CONTROL) => Some(Action::Redo),
             (KeyCode::Char('f'), KeyModifiers::CONTROL) => Some(Action::Search),
-            (KeyCode::Char(_c), m) if m.is_empty() || m == KeyModifiers::SHIFT => Some(Action::Print),
+            // Tab switching - Ctrl+Number (existing)
+            (KeyCode::Char('1'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(1)),
+            (KeyCode::Char('2'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(2)),
+            (KeyCode::Char('3'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(3)),
+            (KeyCode::Char('4'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(4)),
+            (KeyCode::Char('5'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(5)),
+            (KeyCode::Char('6'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(6)),
+            (KeyCode::Char('7'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(7)),
+            (KeyCode::Char('8'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(8)),
+            (KeyCode::Char('9'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(9)),
+            (KeyCode::Char('0'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(10)),
+            // Tab switching - Alt+Number (alternative)
+            (KeyCode::Char('1'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(1)),
+            (KeyCode::Char('2'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(2)),
+            (KeyCode::Char('3'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(3)),
+            (KeyCode::Char('4'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(4)),
+            (KeyCode::Char('5'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(5)),
+            (KeyCode::Char('6'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(6)),
+            (KeyCode::Char('7'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(7)),
+            (KeyCode::Char('8'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(8)),
+            (KeyCode::Char('9'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(9)),
+            (KeyCode::Char('0'), m) if m.contains(KeyModifiers::ALT) => Some(Action::SwitchTab(10)),
+            // Tab switching - F1..F10 (no modifier)
+            (KeyCode::F(1), _) => Some(Action::SwitchTab(1)),
+            (KeyCode::F(2), _) => Some(Action::SwitchTab(2)),
+            (KeyCode::F(3), _) => Some(Action::SwitchTab(3)),
+            (KeyCode::F(4), _) => Some(Action::SwitchTab(4)),
+            (KeyCode::F(5), _) => Some(Action::SwitchTab(5)),
+            (KeyCode::F(6), _) => Some(Action::SwitchTab(6)),
+            (KeyCode::F(7), _) => Some(Action::SwitchTab(7)),
+            (KeyCode::F(8), _) => Some(Action::SwitchTab(8)),
+            (KeyCode::F(9), _) => Some(Action::SwitchTab(9)),
+            (KeyCode::F(10), _) => Some(Action::SwitchTab(10)),
+            (KeyCode::Char(_c), m) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                Some(Action::Print)
+            }
             _ => None,
         }
     }
@@ -118,10 +154,8 @@ impl Shortcuts {
             },
             MouseEventKind::Drag(MouseButton::Left) => {
                 Some(Action::MouseDrag(event.column, event.row))
-            },
-            MouseEventKind::Up(MouseButton::Left) => {
-                Some(Action::MouseUp(event.column, event.row))
-            },
+            }
+            MouseEventKind::Up(MouseButton::Left) => Some(Action::MouseUp(event.column, event.row)),
             _ => None,
         }
     }
@@ -131,9 +165,7 @@ impl Shortcuts {
         Self::get_mappings()
             .into_iter()
             .filter(|(_, mods, _, _)| mods.contains(KeyModifiers::CONTROL))
-            .map(|(code, mods, _, desc)| {
-                (Self::key_to_short_string(code, mods), desc)
-            })
+            .map(|(code, mods, _, desc)| (Self::key_to_short_string(code, mods), desc))
             .collect()
     }
     

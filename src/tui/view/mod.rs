@@ -12,7 +12,7 @@ pub use buffer::Buffer;
 use crate::core::edit_history::EditOperation;
 use crate::core::selection::{Selection, TextPosition};
 use crate::tui::{caret::Caret, terminal::Terminal};
-pub use search::{SearchState};
+pub use search::SearchState;
 use std::io::Error;
 
 // Prompt kind describes the intent of the footer prompt.
@@ -38,6 +38,7 @@ pub struct View {
     pub(in crate::tui::view) is_dragging: bool,
     pub(in crate::tui) scroll_offset: usize,
     pub(in crate::tui) filename: Option<String>,
+    pub(in crate::tui) prompt_since: Option<std::time::Instant>,
     pub(in crate::tui::view) show_shortcuts: bool,
     pub(in crate::tui) prompt: Option<Prompt>,
     pub(in crate::tui) needs_redraw: bool,
@@ -50,6 +51,7 @@ impl View {
             buffer,
             scroll_offset: 0,
             filename: None,
+            prompt_since: None,
             show_shortcuts: false,
             selection: None,
             is_dragging: false,
@@ -70,6 +72,8 @@ impl View {
             message,
             input: String::new(),
         });
+        // Record when the prompt was shown so UI can auto-clear it after a timeout.
+        self.prompt_since = Some(std::time::Instant::now());
         self.needs_redraw = true;
     }
 
@@ -100,6 +104,7 @@ impl View {
     // Clear any active prompt.
     pub fn clear_prompt(&mut self) {
         self.prompt = None;
+        self.prompt_since = None;
         self.needs_redraw = true;
     }
 
@@ -222,7 +227,7 @@ impl View {
     }
 
     // Keyboard operations - Return Option<EditOperation>
-    pub fn type_character(&mut self, character: char, caret: &mut Caret,) -> Result<Option<EditOperation>, Error> {
+    pub fn type_character(&mut self, character: char, caret: &mut Caret) -> Result<Option<EditOperation>, Error> {
         let result = keyboard::type_character(self, character, caret)?;
         if result.is_some() {
             self.needs_redraw = true;
@@ -332,7 +337,7 @@ impl View {
         Ok(())
     }
 
-    pub fn move_without_selection(&mut self, direction: &str, caret: &mut Caret,) -> Result<(), Error> {
+    pub fn move_without_selection(&mut self, direction: &str, caret: &mut Caret) -> Result<(), Error> {
         selection::move_without_selection(self, direction, caret)
     }
 
@@ -351,7 +356,7 @@ impl View {
     }
 
     // Helper for clamping cursor to line length
-    pub(in crate::tui::view) fn clamp_cursor_to_line(&self, caret: &mut Caret,) -> Result<(), Error> {
+    pub(in crate::tui::view) fn clamp_cursor_to_line(&self, caret: &mut Caret) -> Result<(), Error> {
         use crate::tui::caret::Position;
 
         let pos = caret.get_position();
@@ -382,6 +387,7 @@ impl Default for View {
             buffer: Buffer::default(),
             scroll_offset: 0,
             filename: None,
+            prompt_since: None,
             show_shortcuts: false,
             selection: None,
             is_dragging: false,
@@ -397,7 +403,7 @@ pub(in crate::tui::view) mod helpers {
     use super::*;
     use crate::tui::caret::Position;
 
-    pub fn screen_to_text_pos(view: &View, screen_x: u16, screen_y: u16,) -> Result<TextPosition, Error> {
+    pub fn screen_to_text_pos(view: &View, screen_x: u16, screen_y: u16) -> Result<TextPosition, Error> {
         let size = Terminal::get_size()?;
 
         // Clamp to valid screen area (don't include footer)

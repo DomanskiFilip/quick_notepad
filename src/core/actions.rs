@@ -42,4 +42,7 @@ pub enum Action {
     Undo,
     Redo,
     Search,
+
+    // Tab operations
+    SwitchTab(usize),
 }

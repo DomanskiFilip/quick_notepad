@@ -53,6 +53,7 @@ pub struct EditOperation {
     pub scroll_after: usize,
 }
 
+#[derive(Clone)]
 pub struct EditHistory {
     undo_stack: Vec<EditOperation>,
     redo_stack: Vec<EditOperation>,

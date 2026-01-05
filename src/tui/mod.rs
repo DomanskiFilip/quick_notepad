@@ -1,13 +1,11 @@
 // TUI module with undo/redo support
 pub mod caret;
-mod main_error_wrapper;
 mod terminal;
 pub mod view;
 
 use crate::core::{actions::Action, edit_history::EditHistory, shortcuts::Shortcuts};
 use caret::Caret;
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
-use main_error_wrapper::MainErrorWrapper;
 use terminal::Terminal;
 use view::{Buffer, View};
 
@@ -40,7 +38,26 @@ impl TerminalEditor {
         if let Err(error) = Terminal::initialize(&mut self.view, &mut self.caret) {
             eprintln!("Terminal Initialisation Failed: {:?}", error);
         }
-        MainErrorWrapper::handle_error(self.main_loop());
+
+        // Run main loop and display any runtime errors in the footer prompt.
+        match self.main_loop() {
+            Ok(_) => {}
+            Err(e) => {
+                // Show error in footer prompt
+                self.view.show_prompt(
+                    crate::tui::view::PromptKind::Error,
+                    format!("Error encountered: {}", e),
+                );
+
+                // Try to render the prompt to the user. Ignore render/execute errors
+                let _ = self.view.render_if_needed(
+                    &self.caret,
+                    self.tab_manager.current_tab.has_unsaved_changes,
+                );
+                let _ = Terminal::execute();
+            }
+        }
+
         if let Err(error) = Terminal::terminate() {
             eprintln!("Terminal Termination Failed: {:?}", error);
         }
@@ -48,6 +65,19 @@ impl TerminalEditor {
 
     fn main_loop(&mut self) -> Result<(), std::io::Error> {
         loop {
+            // Auto-clear footer prompts after 2 seconds
+            if let Some(since) = self.view.prompt_since {
+                if since.elapsed() >= std::time::Duration::from_secs(2) {
+                    self.view.clear_prompt();
+                    // Try to render the cleared footer; ignore errors to avoid recursive failures.
+                    let _ = self.view.render_if_needed(
+                        &self.caret,
+                        self.tab_manager.current_tab.has_unsaved_changes,
+                    );
+                    let _ = Terminal::execute();
+                }
+            }
+
             match read()? {
                 Event::Key(event) => {
                     if event.kind == KeyEventKind::Press {
@@ -181,10 +211,56 @@ impl TerminalEditor {
                                     // TODO: Implement new file
                                 }
                                 Action::Quit => {
+                                    // If current buffer has unsaved changes, prompt the user for confirmation.
                                     if self.has_unsaved_changes {
-                                        // TODO: Show "unsaved changes" prompt
+                                        self.view.show_prompt(
+                                            crate::tui::view::PromptKind::Error,
+                                            "Unsaved changes. Quit without saving? (y/n)"
+                                                .to_string(),
+                                        );
+                                        self.view.needs_redraw = true;
+                                        self.view.render_if_needed(
+                                            &self.caret,
+                                            self.has_unsaved_changes,
+                                        )?;
+                                        Terminal::execute()?;
+
+                                        // Read simple confirmation (y/n) from user
+                                        loop {
+                                            match read()? {
+                                                Event::Key(event)
+                                                    if event.kind == KeyEventKind::Press =>
+                                                {
+                                                    match event.code {
+                                                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                                            // User confirmed quit
+                                                            self.quit_program = true;
+                                                            break;
+                                                        }
+                                                        KeyCode::Char('n')
+                                                        | KeyCode::Char('N')
+                                                        | KeyCode::Esc => {
+                                                            // Cancel quit; clear prompt and continue main loop
+                                                            self.view.clear_prompt();
+                                                            self.view.render_if_needed(
+                                                                &self.caret,
+                                                                self.has_unsaved_changes,
+                                                            )?;
+                                                            Terminal::execute()?;
+                                                            break;
+                                                        }
+                                                        _ => {
+                                                            // ignore other keys
+                                                        }
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    } else {
+                                        // No unsaved changes -> quit immediately
+                                        self.quit_program = true;
                                     }
-                                    self.quit_program = true;
                                 }
                                 Action::Print => {
                                     if let KeyCode::Char(character) = event.code {
@@ -318,13 +394,10 @@ impl TerminalEditor {
                 }
             }
         } else {
-            // Show SaveAs prompt in footer and capture keys until Enter/Esc.
-            use std::fs;
-    
-            // Show prompt in footer WITH Esc hint
+            // SaveAs prompt
             self.view.show_prompt(
                 crate::tui::view::PromptKind::SaveAs,
-                "Save as: ".to_string(),  // Note the space after colon
+                "Save as: ".to_string(),
             );
             self.view.needs_redraw = true;
             self.view
