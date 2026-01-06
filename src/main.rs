@@ -2,11 +2,7 @@ mod core;
 mod tui;
 
 use std::env;
-use std::fs;
-use tui::{
-    TerminalEditor,
-    view::Buffer
-};
+use tui::TerminalEditor;
 use core::shortcuts::Shortcuts;
 
 fn main() {
@@ -18,24 +14,29 @@ fn main() {
         return;
     }
     
-    // Decide which buffer to use and track filename
-    let (buffer, filename) = if args.len() > 1 {
-        let path = &args[1];
-        let buffer = fs::read_to_string(path)
-            .map(Buffer::from_string)
-            .unwrap_or_else(|_| Buffer::default());
-        (buffer, Some(path.clone()))
-    } else {
-        (Buffer::default(), None)
-    };
-    
-    // Start the editor
-    let mut editor = TerminalEditor::new(buffer);
-    
-    // Set filename if we loaded a file
-    if let Some(filename) = filename {
-        editor.set_filename(filename);
-    }
+    // Create editor with or without file
+    let mut editor = if args.len() > 1 {
+        let raw_path = &args[1];
+            // Convert to absolute path so the TabManager doesn't lose it later
+            let path = std::fs::canonicalize(raw_path)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| raw_path.clone());
+        
+            match TerminalEditor::new_with_file(&path) {
+                Ok(mut ed) => {
+                    ed.set_filename(path);
+                    ed
+                },
+                Err(e) => {
+                    eprintln!("Error opening file {}: {}", path, e);
+                    eprintln!("Starting with empty editor instead");
+                    TerminalEditor::new(tui::view::Buffer::default())
+                }
+            }
+        } else {
+            // No file argument - load previous session or start fresh
+            TerminalEditor::new(tui::view::Buffer::default())
+        };
     
     editor.run();
 }
