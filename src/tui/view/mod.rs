@@ -1,5 +1,4 @@
 // view mod module with corrected EditOperation returns
-mod buffer;
 mod clipboard;
 mod keyboard;
 mod mouse;
@@ -7,10 +6,11 @@ mod render;
 mod search;
 mod selection;
 
-pub use buffer::Buffer;
-
-use crate::core::edit_history::EditOperation;
-use crate::core::selection::{Selection, TextPosition};
+pub use crate::core::buffer::Buffer;
+use crate::core::{
+    edit_history::EditOperation,
+    selection::{Selection, TextPosition},
+};
 use crate::tui::{caret::Caret, terminal::Terminal};
 pub use search::SearchState;
 use std::io::Error;
@@ -21,8 +21,6 @@ pub(crate) enum PromptKind {
     Error,
     Search,
     SearchInfo,
-    // Input,
-    // Other,
 }
 
 // Prompt state shown in the footer when active.
@@ -34,15 +32,15 @@ pub(in crate::tui) struct Prompt {
 
 pub struct View {
     pub buffer: Buffer,
-    pub(in crate::tui::view) selection: Option<Selection>,
-    pub(in crate::tui::view) is_dragging: bool,
-    pub(in crate::tui) scroll_offset: usize,
-    pub(in crate::tui) filename: Option<String>,
-    pub(in crate::tui) prompt_since: Option<std::time::Instant>,
-    pub(in crate::tui::view) show_shortcuts: bool,
-    pub(in crate::tui) prompt: Option<Prompt>,
-    pub(in crate::tui) needs_redraw: bool,
+    pub selection: Option<Selection>,
+    pub is_dragging: bool,
+    pub scroll_offset: usize,
+    pub filename: Option<String>,
+    pub prompt_since: Option<std::time::Instant>,
+    pub show_shortcuts: bool,
+    pub needs_redraw: bool,
     pub search_state: Option<SearchState>,
+    pub(in crate::tui) prompt: Option<Prompt>,
 }
 
 impl View {
@@ -77,14 +75,6 @@ impl View {
         self.needs_redraw = true;
     }
 
-    // Replace current prompt input (useful when setting initial input programmatically).
-    // pub fn update_prompt_input(&mut self, input: String) {
-    //     if let Some(p) = &mut self.prompt {
-    //         p.input = input;
-    //         self.needs_redraw = true;
-    //     }
-    // }
-
     // Append a character to the current prompt input (for in-UI typing).
     pub fn append_prompt_char(&mut self, ch: char) {
         if let Some(p) = &mut self.prompt {
@@ -107,11 +97,6 @@ impl View {
         self.prompt_since = None;
         self.needs_redraw = true;
     }
-
-    // Return whether a prompt is active.
-    // pub fn prompt_active(&self) -> bool {
-    //     self.prompt.is_some()
-    // }
 
     //Get a reference to the prompt if active.
     pub fn get_prompt(&self) -> Option<(&PromptKind, &str, &str)> {
@@ -152,7 +137,10 @@ impl View {
         Ok(result)
     }
 
-    pub fn paste_from_clipboard(&mut self, caret: &mut Caret) -> Result<Option<EditOperation>, Error> {
+    pub fn paste_from_clipboard(
+        &mut self,
+        caret: &mut Caret,
+    ) -> Result<Option<EditOperation>, Error> {
         let result = clipboard::paste_from_clipboard(self, caret)?;
         if result.is_some() {
             self.needs_redraw = true;
@@ -166,31 +154,31 @@ impl View {
         self.needs_redraw = true;
         Ok(())
     }
-    
+
     pub fn set_search_state(&mut self, state: Option<SearchState>) {
         self.search_state = state;
     }
-    
+
     pub fn set_current_match(&mut self, idx: usize) {
         if let Some(ref mut state) = self.search_state {
             state.current_match_idx = idx;
         }
     }
-    
+
     pub fn next_search_match(&mut self, caret: &mut Caret) -> Result<(), Error> {
         search::next_search_match(self, caret)?;
         Ok(())
     }
-    
+
     pub fn prev_search_match(&mut self, caret: &mut Caret) -> Result<(), Error> {
         search::prev_search_match(self, caret)?;
         Ok(())
     }
-    
+
     pub fn clear_search(&mut self) {
         search::clear_search(self);
     }
-    
+
     pub fn is_search_active(&self) -> bool {
         self.search_state.is_some()
     }
@@ -227,7 +215,11 @@ impl View {
     }
 
     // Keyboard operations - Return Option<EditOperation>
-    pub fn type_character(&mut self, character: char, caret: &mut Caret) -> Result<Option<EditOperation>, Error> {
+    pub fn type_character(
+        &mut self,
+        character: char,
+        caret: &mut Caret,
+    ) -> Result<Option<EditOperation>, Error> {
         let result = keyboard::type_character(self, character, caret)?;
         if result.is_some() {
             self.needs_redraw = true;
@@ -337,7 +329,11 @@ impl View {
         Ok(())
     }
 
-    pub fn move_without_selection(&mut self, direction: &str, caret: &mut Caret) -> Result<(), Error> {
+    pub fn move_without_selection(
+        &mut self,
+        direction: &str,
+        caret: &mut Caret,
+    ) -> Result<(), Error> {
         selection::move_without_selection(self, direction, caret)
     }
 
@@ -356,7 +352,10 @@ impl View {
     }
 
     // Helper for clamping cursor to line length
-    pub(in crate::tui::view) fn clamp_cursor_to_line(&self, caret: &mut Caret) -> Result<(), Error> {
+    pub(in crate::tui::view) fn clamp_cursor_to_line(
+        &self,
+        caret: &mut Caret,
+    ) -> Result<(), Error> {
         use crate::tui::caret::Position;
 
         let pos = caret.get_position();
@@ -399,11 +398,15 @@ impl Default for View {
 }
 
 // Helper functions used across modules
-pub(in crate::tui::view) mod helpers {
+pub mod helpers {
     use super::*;
     use crate::tui::caret::Position;
 
-    pub fn screen_to_text_pos(view: &View, screen_x: u16, screen_y: u16) -> Result<TextPosition, Error> {
+    pub fn screen_to_text_pos(
+        view: &View,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> Result<TextPosition, Error> {
         let size = Terminal::get_size()?;
 
         // Clamp to valid screen area (don't include footer)

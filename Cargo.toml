@@ -1,23 +1,39 @@
 [package]
 name = "quick"
 version = "0.1.0"
-edition = "2024"
-authors = ["Filip Domanski"]
-description = "A terminal text editor written in Rust - beta"
-repository = "https://github.com/DomanskiFilip/quick_notepad"
+edition = "2021"
+
+[dependencies]
+# Existing TUI dependencies
+crossterm = "0.29"
+arboard = "3.4"
+
+# GUI dependencies
+eframe = "0.33.3"
+egui = "0.33.3"
+egui_extras = { version = "0.33.3", features = ["syntect"] }
+
+# Shared dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [[bin]]
 name = "quick"
 path = "src/main.rs"
-
-[dependencies]
-crossterm = "0.29.0"
-arboard = { version = "3.4", features = ["wayland-data-control"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# For AppImage/packaging
+[package.metadata.bundle]
+name = "Quick Notepad"
+identifier = "com.quicknotepad.app"
+icon = ["assets/icon.png"]
+resources = []
+copyright = "© Filip Domanski"
+category = "Utility"
+short_description = "Fast and simple text editor"
+long_description = "A minimalist text editor with both terminal and GUI interfaces"
