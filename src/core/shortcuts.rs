@@ -30,6 +30,7 @@ impl Shortcuts {
             (KeyCode::Home, KeyModifiers::empty(), Action::MaxLeft, "Move to start of line"),
             (KeyCode::End, KeyModifiers::empty(), Action::MaxRight, "Move to end of line"),
             (KeyCode::Enter, KeyModifiers::empty(), Action::NextLine, "Insert new line"),
+            (KeyCode::Tab, KeyModifiers::empty(), Action::Print, "Insert tab (4 spaces)"),
             (KeyCode::Backspace, KeyModifiers::empty(), Action::Backspace, "Delete before cursor"),
             (KeyCode::Delete, KeyModifiers::empty(), Action::Delete, "Delete at cursor"),
             (KeyCode::Char('g'), KeyModifiers::CONTROL, Action::ToggleCtrlShortcuts, "Toggle ctrl shortcuts footer"),
@@ -69,6 +70,7 @@ impl Shortcuts {
             (KeyCode::End, _) => Some(Action::MaxRight),
             
             (KeyCode::Enter, _) => Some(Action::NextLine),
+            (KeyCode::Tab, _) => Some(Action::Print),  // Tab inserts 4 spaces
             (KeyCode::Backspace, _) => Some(Action::Backspace),
             (KeyCode::Delete, _) => Some(Action::Delete),
             (KeyCode::Char('g'), KeyModifiers::CONTROL) => Some(Action::ToggleCtrlShortcuts),
@@ -189,6 +191,7 @@ impl Shortcuts {
             KeyCode::Up => string.push_str("Up Arrow"),
             KeyCode::Down => string.push_str("Down Arrow"),
             KeyCode::Enter => string.push_str("Enter"),
+            KeyCode::Tab => string.push_str("Tab"),
             KeyCode::Backspace => string.push_str("Backspace"),
             KeyCode::Delete => string.push_str("Delete"),
             KeyCode::Home => string.push_str("Home"),

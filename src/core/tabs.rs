@@ -41,12 +41,6 @@ impl Tab {
         
         Ok(Self::new(buffer, Some(absolute_path)))
     }
-    
-    // pub fn is_empty(&self) -> bool {
-    //     self.filename.is_none() && 
-    //     self.buffer.lines.iter().all(|line| line.is_empty()) &&
-    //     !self.has_unsaved_changes
-    // }
 }
 
 // Serializable tab info for persistence
@@ -171,7 +165,6 @@ impl TabManager {
             .map_err(|e| Error::new(std::io::ErrorKind::InvalidData, e))?;
         
         fs::write(&self.session_file, json)?;
-        eprintln!("Session saved to {:?}", self.session_file);
         Ok(())
     }
 
@@ -253,52 +246,6 @@ impl TabManager {
         
         Ok(0)
     }
-
-//     pub fn get_tab_info(&self) -> String {
-//         let mut info = String::new();
-        
-//         for (i, tab) in self.tabs.iter().take(5).enumerate() {
-//             let tab_num = i + 1;
-//             let is_active = i == self.active_tab_index;
-            
-//             let name = tab.filename
-//                 .as_ref()
-//                 .and_then(|p| std::path::Path::new(p).file_name())
-//                 .and_then(|n| n.to_str())
-//                 .unwrap_or("[New]");
-            
-//             let modified = if tab.has_unsaved_changes { "*" } else { "" };
-            
-//             if is_active {
-//                 info.push_str(&format!("[{}:{}{}] ", tab_num, name, modified));
-//             } else {
-//                 info.push_str(&format!("{}:{}{} ", tab_num, name, modified));
-//             }
-//         }
-        
-//         if self.tabs.len() > 5 {
-//             info.push_str(&format!("+{} ", self.tabs.len() - 5));
-//         }
-        
-//         info
-//     }
-
-//     pub fn close_current_tab(&mut self) -> bool {
-//         if self.tabs.len() == 1 {
-//             self.tabs[0] = Tab::new(Buffer::default(), None);
-//             let _ = self.save_session();
-//             return false;
-//         }
-
-//         self.tabs.remove(self.active_tab_index);
-        
-//         if self.active_tab_index >= self.tabs.len() {
-//             self.active_tab_index = self.tabs.len() - 1;
-//         }
-        
-//         let _ = self.save_session();
-//         true
-//     }
 }
 
 // Save session on drop
