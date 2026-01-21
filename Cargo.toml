@@ -1,7 +1,30 @@
 [package]
-name = "quick"
-version = "0.1.0"
+name = "quick-notepad"
+version = "1.0.0"
+authors = ["Filip Domanski"]
 edition = "2021"
+description = "A modern dual-mode text editor for terminal and GUI"
+repository = "https://github.com/DomanskiFilip/quick_notepad"
+license = "custom"
+keywords = ["editor", "text-editor", "tui", "gui", "terminal"]
+categories = ["command-line-utilities", "text-editors"]
+
+[[bin]]
+name = "quick"
+path = "src/main.rs"
+
+[package.metadata.bundle]
+name = "Quick Notepad"
+identifier = "com.filipdomanski.quicknotepad"
+icon = ["assets/icon.png"]
+resources = []
+copyright = "© 2026 Filip Domanski"
+category = "Utility"
+short_description = "Fast and simple text editor"
+long_description = "A minimalist text editor with both terminal and GUI interfaces. Supports 25+ languages with syntax highlighting."
+
+[package.metadata.bundle.linux]
+desktop_file = "assets/quick-notepad.desktop"
 
 [dependencies]
 crossterm = "0.29"
@@ -26,23 +49,8 @@ serde_json = "1.0"
 [dependencies.atspi-common]
 version = "0.13.0"
 
-[[bin]]
-name = "quick"
-path = "src/main.rs"
-
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
-
-# For AppImage/packaging
-[package.metadata.bundle]
-name = "Quick Notepad"
-identifier = "com.quicknotepad.app"
-icon = ["assets/icon.png"]
-resources = []
-copyright = "© Filip Domanski"
-category = "Utility"
-short_description = "Fast and simple text editor"
-long_description = "A minimalist text editor with both terminal and GUI interfaces"

@@ -1,0 +1,18 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Quick Notepad
+GenericName=Text Editor
+Comment=A modern dual-mode text editor with syntax highlighting
+Exec=quick --gui %F
+Icon=icon
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;text/x-csrc;text/x-c++src;text/x-java;text/x-python;text/x-rust;text/x-javascript;text/x-typescript;text/html;text/css;application/json;application/xml;text/markdown;
+StartupNotify=true
+Keywords=editor;text;development;code;notepad;
+Actions=OpenTerminal;
+
+[Desktop Action OpenTerminal]
+Name=Open in Terminal Mode
+Exec=x-terminal-emulator -e quick %F
