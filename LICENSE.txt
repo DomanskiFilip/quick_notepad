@@ -8,6 +8,6 @@ You may not:
 - Create forks or derivative works for distribution or public hosting.
 - Use the code or application in any commercial context.
 
-Filip Domanski is the exclusive host and distributor of CATdesktop. For commercial or redistribution inquiries, contact the copyright holder.
+Filip Domanski is the exclusive host and distributor of quick notepad. For commercial or redistribution inquiries, contact the copyright holder.
 
 All rights reserved.
