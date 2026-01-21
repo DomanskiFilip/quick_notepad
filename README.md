@@ -1,5 +1,6 @@
 ## Quick Notepad
 A modern, dual-mode text editor written in Rust that runs both in the terminal (TUI) and as a native GUI application. Built from scratch as part of the "build your own X" philosophy to create a fast, reliable, and customizable editor that does exactly what you need.
+
 ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)
 
 ## Features
