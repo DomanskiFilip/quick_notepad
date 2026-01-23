@@ -8,7 +8,7 @@ use crate::core::{
     actions::Action, 
     shortcuts::Shortcuts, 
     tabs::{TabManager, get_friendly_filetype},
-    updater::{Updater, UpdateInfo}
+    updater::Updater,
 };
 use caret::Caret;
 use crossterm::event::{read, Event, KeyCode, KeyEventKind};

@@ -1,10 +1,9 @@
-// src/core/updater.rs - Auto-update functionality
+// module responsible for Auto-update functionality
 use std::fs;
 use std::io::{self, Write};
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
-const GITHUB_REPO: &str = "DomanskiFilip/quick_notepad";
+const GITHUB_REPO: &str = "DomanskiFilip/quick-notepad";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Deserialize)]
@@ -146,7 +145,7 @@ impl Updater {
     }
 
     // Find the correct asset for the current platform
-    fn find_matching_asset(&self, assets: &[GitHubAsset]) -> Result<&GitHubAsset, Box<dyn std::error::Error>> {
+    fn find_matching_asset<'a>(&self, assets: &'a [GitHubAsset]) -> Result<&'a GitHubAsset, Box<dyn std::error::Error>> {
         let target = Self::get_target_triple();
         
         for asset in assets {
@@ -177,6 +176,7 @@ impl Updater {
 
     // Get the target triple for the current platform
     fn get_target_triple() -> String {
+        // Use compile-time target detection instead of env!("TARGET")
         if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
             "x86_64-unknown-linux-gnu".to_string()
         } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
@@ -188,7 +188,11 @@ impl Updater {
         } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
             "x86_64-pc-windows-msvc".to_string()
         } else {
-            env!("TARGET").to_string()
+            // Fallback for other platforms
+            format!("{}-unknown-{}", 
+                std::env::consts::ARCH,
+                std::env::consts::OS
+            )
         }
     }
 }
