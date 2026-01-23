@@ -45,4 +45,8 @@ pub enum Action {
 
     // Tab operations
     SwitchTab(usize),
+    
+    // Updateing 
+    CheckUpdate,
+    PerformUpdate,
 }

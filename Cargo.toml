@@ -1,6 +1,6 @@
 [package]
 name = "quick-notepad"
-version = "1.0.0"
+version = "0.1.0"
 authors = ["Filip Domanski"]
 edition = "2021"
 description = "A modern dual-mode text editor for terminal and GUI"
@@ -45,6 +45,9 @@ egui_extras = { version = "0.33.3", features = ["syntect"] }
 # Shared dependencies
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# For auto-update functionality
+reqwest = { version = "0.11", features = ["blocking", "json"] }
 
 [dependencies.atspi-common]
 version = "0.13.0"

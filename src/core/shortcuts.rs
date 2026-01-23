@@ -44,6 +44,7 @@ impl Shortcuts {
             (KeyCode::Char('z'), KeyModifiers::CONTROL, Action::Undo, "Undo"),
             (KeyCode::Char('y'), KeyModifiers::CONTROL, Action::Redo, "Redo"),
             (KeyCode::Char('f'), KeyModifiers::CONTROL, Action::Search, "Search"),
+            (KeyCode::Char('u'), KeyModifiers::CONTROL, Action::CheckUpdate, "Check for updates"),
         ]
     }
         
@@ -84,6 +85,7 @@ impl Shortcuts {
             (KeyCode::Char('z'), KeyModifiers::CONTROL) => Some(Action::Undo),
             (KeyCode::Char('y'), KeyModifiers::CONTROL) => Some(Action::Redo),
             (KeyCode::Char('f'), KeyModifiers::CONTROL) => Some(Action::Search),
+            (KeyCode::Char('u'), KeyModifiers::CONTROL) => Some(Action::CheckUpdate),
             // Tab switching - Ctrl+Number (existing)
             (KeyCode::Char('1'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(1)),
             (KeyCode::Char('2'), KeyModifiers::CONTROL) => Some(Action::SwitchTab(2)),

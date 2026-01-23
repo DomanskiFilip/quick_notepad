@@ -7,7 +7,8 @@ pub mod view;
 use crate::core::{
     actions::Action, 
     shortcuts::Shortcuts, 
-    tabs::{TabManager, get_friendly_filetype}
+    tabs::{TabManager, get_friendly_filetype},
+    updater::{Updater, UpdateInfo}
 };
 use caret::Caret;
 use crossterm::event::{read, Event, KeyCode, KeyEventKind};
@@ -65,6 +66,126 @@ impl TerminalEditor {
         self.tab_manager.current_tab_mut().filename = filename.clone();
         self.view.set_filename_and_filetype(filename, filetype);
     }
+    
+    fn check_and_install_update(&mut self) -> Result<(), std::io::Error> {
+        // Show checking message
+        self.view.show_prompt(
+            crate::tui::view::PromptKind::SearchInfo,
+            "Checking for updates...".to_string(),
+        );
+        self.view.needs_redraw = true;
+        self.view.render_if_needed(&self.caret, false)?;
+        Terminal::execute()?;
+        
+        // Check for updates in a separate thread to avoid blocking
+        let updater = Updater::new();
+        
+        let update_info = match updater.check_for_updates() {
+            Ok(info) => info,
+            Err(e) => {
+                self.view.show_prompt(
+                    crate::tui::view::PromptKind::Error,
+                    format!("Failed to check for updates: {}", e),
+                );
+                self.view.render_if_needed(&self.caret, false)?;
+                Terminal::execute()?;
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                self.view.clear_prompt();
+                self.view.render_if_needed(&self.caret, false)?;
+                Terminal::execute()?;
+                return Ok(());
+            }
+        };
+        
+        if !update_info.update_available {
+            self.view.show_prompt(
+                crate::tui::view::PromptKind::SearchInfo,
+                format!("You're running the latest version ({})", update_info.current_version),
+            );
+            self.view.render_if_needed(&self.caret, false)?;
+            Terminal::execute()?;
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            self.view.clear_prompt();
+            self.view.render_if_needed(&self.caret, false)?;
+            Terminal::execute()?;
+            return Ok(());
+        }
+        
+        // Update available - show release notes and prompt
+        let message = format!(
+            "Update available: v{} → v{} | Press Y to install, N to cancel",
+            update_info.current_version,
+            update_info.latest_version
+        );
+        
+        self.view.show_prompt(
+            crate::tui::view::PromptKind::SearchInfo,
+            message,
+        );
+        self.view.needs_redraw = true;
+        self.view.render_if_needed(&self.caret, false)?;
+        Terminal::execute()?;
+        
+        // Wait for user confirmation
+        loop {
+            match read()? {
+                Event::Key(event) if event.kind == KeyEventKind::Press => {
+                    match event.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            // User confirmed - perform update
+                            self.view.show_prompt(
+                                crate::tui::view::PromptKind::SearchInfo,
+                                "Downloading update...".to_string(),
+                            );
+                            self.view.render_if_needed(&self.caret, false)?;
+                            Terminal::execute()?;
+                            
+                            match updater.perform_update() {
+                                Ok(_) => {
+                                    self.view.show_prompt(
+                                        crate::tui::view::PromptKind::SearchInfo,
+                                        "Update successful! Restart the application to use the new version.".to_string(),
+                                    );
+                                    self.view.render_if_needed(&self.caret, false)?;
+                                    Terminal::execute()?;
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
+                                    
+                                    // Optionally quit after update
+                                    self.quit_program = true;
+                                }
+                                Err(e) => {
+                                    self.view.show_prompt(
+                                        crate::tui::view::PromptKind::Error,
+                                        format!("Update failed: {}", e),
+                                    );
+                                    self.view.render_if_needed(&self.caret, false)?;
+                                    Terminal::execute()?;
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
+                                }
+                            }
+                            break;
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                            // User cancelled
+                            self.view.clear_prompt();
+                            self.view.render_if_needed(&self.caret, false)?;
+                            Terminal::execute()?;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        self.view.clear_prompt();
+        self.view.render_if_needed(&self.caret, false)?;
+        Terminal::execute()?;
+        
+        Ok(())
+    }
+
 
     pub fn run(&mut self) {
         if let Err(error) = Terminal::initialize(&mut self.view, &mut self.caret) {
@@ -204,6 +325,10 @@ impl TerminalEditor {
                                 }
 
                                 Action::Save => self.save_file()?,
+                                
+                                Action::CheckUpdate => {
+                                    self.check_and_install_update()?;
+                                }
 
                                 Action::New => {
                                     self.sync_tab_to_view();
