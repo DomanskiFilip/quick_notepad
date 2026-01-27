@@ -9,6 +9,8 @@ pub struct QuickNotepadApp {
     show_save_dialog: bool,
     save_filename: String,
     dialog_has_focus: bool,
+    show_update_dialog: bool,
+    update_info: Option<UpdateInfo>,
 }
 
 impl QuickNotepadApp {
@@ -19,6 +21,8 @@ impl QuickNotepadApp {
             show_save_dialog: false,
             save_filename: String::new(),
             dialog_has_focus: false,
+            show_update_dialog: false,
+            update_info: None,
         }
     }
 
@@ -96,6 +100,21 @@ impl QuickNotepadApp {
                         ui.close();
                     }
                 });
+                
+                ui.menu_button("Help", |ui| {
+                    if ui.button("🔄 Check for Updates (Ctrl+U)").clicked() {
+                        self.handle_action(Action::CheckUpdate);
+                        ui.close();
+                    }
+                    
+                    ui.separator();
+                    
+                    if ui.button("ℹ About").clicked() {
+                        self.show_about = true;
+                        ui.close();
+                    }
+                });
+
 
                 ui.menu_button("Tabs", |ui| {
                     for i in 1..=9 {
@@ -165,6 +184,7 @@ impl QuickNotepadApp {
                 (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::V), Action::Paste),
                 (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F), Action::Search),
                 (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::A), Action::SelectAll),
+                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::U), Action::CheckUpdate),
             ];
 
             for (shortcut, action) in actions {
@@ -233,6 +253,9 @@ impl QuickNotepadApp {
             }
             Action::SwitchTab(num) => {
                 let _ = self.state.tab_manager.switch_to_tab(num);
+            }
+            Action::CheckUpdate => {
+                self.check_for_updates_gui();
             }
             _ => {}
         }
@@ -316,6 +339,63 @@ impl QuickNotepadApp {
                 }
             });
     }
+    fn show_update_dialog(&mut self, ctx: &Context) {
+        let mut close_dialog = false;
+        let mut perform_update = false;
+        
+        if let Some(info) = &self.update_info {
+            egui::Window::new("Update Available")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.heading(format!("Version {} → {}", info.current_version, info.latest_version));
+                    ui.separator();
+                    
+                    ui.label("Release Notes:");
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            ui.label(&info.release_notes);
+                        });
+                    
+                    ui.separator();
+                    
+                    ui.horizontal(|ui| {
+                        if ui.button("Update Now").clicked() {
+                            perform_update = true;
+                            close_dialog = true;
+                        }
+                        
+                        if ui.button("Later").clicked() {
+                            close_dialog = true;
+                        }
+                    });
+                });
+        }
+        
+        if perform_update {
+            // Perform update in background
+            use crate::core::updater::Updater;
+            let updater = Updater::new();
+            
+            match updater.perform_update() {
+                Ok(_) => {
+                    eprintln!("Update successful! Please restart the application.");
+                    Optionally: ctx.send_viewport_cmd(ViewportCommand::Close);
+                }
+                Err(e) => {
+                    eprintln!("Update failed: {}", e);
+                }
+            }
+        }
+        
+        if close_dialog {
+            self.show_update_dialog = false;
+            self.update_info = None;
+        }
+    }
+
 }
 
 impl eframe::App for QuickNotepadApp {
@@ -335,6 +415,31 @@ impl eframe::App for QuickNotepadApp {
 
         if self.show_shortcuts {
             self.show_shortcuts_window(ctx);
+        }
+        
+        if self.show_update_dialog {
+            self.show_update_dialog(ctx);
+        }
+    }
+    
+    fn check_for_updates_gui(&mut self) {
+        use crate::core::updater::Updater;
+        
+        let updater = Updater::new();
+        
+        match updater.check_for_updates() {
+            Ok(info) => {
+                if info.update_available {
+                    self.show_update_dialog = true;
+                    self.update_info = Some(info);
+                } else {
+                    // Show "no updates" message
+                    eprintln!("No updates available. Running version {}", info.current_version);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to check for updates: {}", e);
+            }
         }
     }
 }
