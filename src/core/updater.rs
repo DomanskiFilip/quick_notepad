@@ -1,9 +1,8 @@
-// module responsible for Auto-update functionality
+// module responsible for Auto-update functionality (Linux only)
 use std::fs;
-use std::io::{self, Write};
 use serde::{Deserialize, Serialize};
 
-const GITHUB_REPO: &str = "DomanskiFilip/quick-notepad";
+const GITHUB_REPO: &str = "DomanskiFilip/quick_notepad";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Deserialize)]
@@ -40,29 +39,88 @@ impl Updater {
 
     // Check if an update is available
     pub fn check_for_updates(&self) -> Result<UpdateInfo, Box<dyn std::error::Error>> {
-        let url = format!("https://api.github.com/repos/{}/releases/latest", self.repo);
+        eprintln!("=== UPDATE CHECK DEBUG ===");
+        eprintln!("Repository: {}", self.repo);
+        eprintln!("Current version: {}", CURRENT_VERSION);
         
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("quick-notepad")
-            .build()?;
+        let client = match reqwest::blocking::Client::builder()
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(10))
+            .build() {
+                Ok(c) => {
+                    eprintln!("✓ HTTP client created");
+                    c
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to create HTTP client: {}", e);
+                    return Err(format!("Failed to create HTTP client: {}", e).into());
+                }
+            };
         
-        let response = client.get(&url).send()?;
+        let release_url = format!("https://api.github.com/repos/{}/releases/latest", self.repo);
+        eprintln!("Fetching: {}", release_url);
         
-        if !response.status().is_success() {
-            return Err(format!("Failed to fetch releases: {}", response.status()).into());
+        let response = match client.get(&release_url).send() {
+            Ok(r) => {
+                eprintln!("✓ Request sent successfully");
+                r
+            }
+            Err(e) => {
+                eprintln!("✗ Network error: {}", e);
+                return Err(format!("Network error: {}. Check your internet connection.", e).into());
+            }
+        };
+        
+        let status = response.status();
+        eprintln!("Response status: {} ({})", status, status.as_u16());
+        
+        if status.as_u16() == 404 {
+            eprintln!("✗ 404 Not Found - Repository or releases don't exist");
+            return Err("Repository not found or no releases available.\n\
+                Repository: DomanskiFilip/quick_notepad\n\
+                Make sure releases exist (not just tags)".into());
         }
         
-        let release: GitHubRelease = response.json()?;
+        if !status.is_success() {
+            let body = response.text().unwrap_or_else(|_| "Could not read response body".to_string());
+            eprintln!("✗ HTTP error. Response body: {}", body);
+            return Err(format!("Failed to fetch releases: {} (status: {})\nResponse: {}", 
+                status, status.as_u16(), body).into());
+        }
+        
+        eprintln!("✓ Got successful response, parsing JSON...");
+        
+        let release: GitHubRelease = match response.json() {
+            Ok(r) => {
+                eprintln!("✓ JSON parsed successfully");
+                r
+            }
+            Err(e) => {
+                eprintln!("✗ Failed to parse JSON: {}", e);
+                return Err(format!("Failed to parse release data: {}", e).into());
+            }
+        };
+        
+        eprintln!("Latest release tag: {}", release.tag_name);
+        eprintln!("Number of assets: {}", release.assets.len());
+        
         let latest_version = release.tag_name.trim_start_matches('v');
         let current_version = CURRENT_VERSION;
         
+        eprintln!("Comparing versions: {} vs {}", current_version, latest_version);
+        
         let update_available = Self::is_newer_version(current_version, latest_version);
+        
+        eprintln!("Update available: {}", update_available);
+        eprintln!("=== END DEBUG ===");
         
         Ok(UpdateInfo {
             current_version: current_version.to_string(),
             latest_version: latest_version.to_string(),
             update_available,
-            release_notes: release.body.unwrap_or_default(),
+            release_notes: release.body.unwrap_or_else(|| 
+                format!("Update to version {}", latest_version)
+            ),
         })
     }
 
@@ -91,26 +149,39 @@ impl Updater {
         false
     }
 
-    // Download and install the update
+    // Download and install the update (Linux only)
     pub fn perform_update(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let url = format!("https://api.github.com/repos/{}/releases/latest", self.repo);
-        
         let client = reqwest::blocking::Client::builder()
-            .user_agent("quick-notepad")
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(60))
             .build()?;
         
-        let response = client.get(&url).send()?;
+        let release_url = format!("https://api.github.com/repos/{}/releases/latest", self.repo);
+        let response = client.get(&release_url).send()?;
+        
+        if !response.status().is_success() {
+            return Err(format!("Failed to fetch release: {}", response.status()).into());
+        }
+        
         let release: GitHubRelease = response.json()?;
         
-        // Determine the correct asset for the current platform
-        let asset = self.find_matching_asset(&release.assets)?;
+        // Find the Linux binary - look for asset named "quick" (no extension)
+        let asset = release.assets
+            .iter()
+            .find(|a| {
+                let name = a.name.to_lowercase();
+                // Look for binary named "quick" without extension
+                // Skip source archives
+                a.name == "quick" || 
+                (name.contains("linux") && !name.ends_with(".zip") && !name.ends_with(".tar.gz"))
+            })
+            .ok_or("No Linux binary found in release")?;
         
-        // Download the asset
-        println!("Downloading update from: {}", asset.browser_download_url);
+        // Download the binary
         let download_response = client.get(&asset.browser_download_url).send()?;
         
         if !download_response.status().is_success() {
-            return Err("Failed to download update".into());
+            return Err(format!("Failed to download update: {}", download_response.status()).into());
         }
         
         let bytes = download_response.bytes()?;
@@ -122,18 +193,15 @@ impl Updater {
         // Create backup of current executable
         fs::copy(&current_exe, &backup_path)?;
         
-        // Write new executable
+        // Write new executable to temp location
         let temp_path = current_exe.with_extension("new");
         fs::write(&temp_path, bytes)?;
         
-        // Make it executable on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&temp_path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&temp_path, perms)?;
-        }
+        // Make it executable
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&temp_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&temp_path, perms)?;
         
         // Replace old executable with new one
         fs::rename(&temp_path, &current_exe)?;
@@ -143,74 +211,6 @@ impl Updater {
         
         Ok(())
     }
-
-    // Find the correct asset for the current platform
-    fn find_matching_asset<'a>(&self, assets: &'a [GitHubAsset]) -> Result<&'a GitHubAsset, Box<dyn std::error::Error>> {
-        let target = Self::get_target_triple();
-        
-        for asset in assets {
-            if asset.name.contains(&target) {
-                return Ok(asset);
-            }
-        }
-        
-        // Fallback: try to match by platform name
-        let platform = if cfg!(target_os = "linux") {
-            "linux"
-        } else if cfg!(target_os = "macos") {
-            "macos"
-        } else if cfg!(target_os = "windows") {
-            "windows"
-        } else {
-            return Err("Unsupported platform".into());
-        };
-        
-        for asset in assets {
-            if asset.name.to_lowercase().contains(platform) {
-                return Ok(asset);
-            }
-        }
-        
-        Err("No matching asset found for this platform".into())
-    }
-
-    // Get the target triple for the current platform
-    fn get_target_triple() -> String {
-        // Use compile-time target detection instead of env!("TARGET")
-        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-            "x86_64-unknown-linux-gnu".to_string()
-        } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-            "aarch64-unknown-linux-gnu".to_string()
-        } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-            "x86_64-apple-darwin".to_string()
-        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            "aarch64-apple-darwin".to_string()
-        } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-            "x86_64-pc-windows-msvc".to_string()
-        } else {
-            // Fallback for other platforms
-            format!("{}-unknown-{}", 
-                std::env::consts::ARCH,
-                std::env::consts::OS
-            )
-        }
-    }
-}
-
-// Interactive update prompt for TUI
-pub fn prompt_update_tui() -> io::Result<bool> {
-    print!("An update is available. Would you like to install it? (y/n): ");
-    io::stdout().flush()?;
-    
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    
-    Ok(input.trim().eq_ignore_ascii_case("y"))
-}
-
-// Update progress callback
-pub fn show_update_progress(message: &str) {
-    println!("{}", message);
 }
 
 #[cfg(test)]

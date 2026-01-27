@@ -2,7 +2,7 @@
 
 set -e
 
-VERSION="1.0.0"
+VERSION="0.0.1"
 DIST_NAME="quick-notepad-${VERSION}-linux-x86_64"
 
 echo "╔════════════════════════════════════════╗"
@@ -31,78 +31,91 @@ cp assets/quick-notepad.desktop "$DIST_NAME/assets/"
 cat > "$DIST_NAME/install.sh" << 'EOF'
 #!/bin/bash
 
-set -e
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
+# Header
 echo "╔════════════════════════════════════════╗"
 echo "║   Quick Notepad Installer v1.0        ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 
-INSTALL_DIR="$HOME/.local/bin"
-APPS_DIR="$HOME/.local/share/applications"
-ICONS_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
+# Detect if running with sudo
+if [ "$EUID" -eq 0 ]; then
+    # Running as root - install to user's home directory
+    if [ -n "$SUDO_USER" ]; then
+        USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+        INSTALL_DIR="$USER_HOME/.local/bin"
+        ACTUAL_USER="$SUDO_USER"
+    else
+        echo -e "${RED}✗ Please run without sudo, or use: sudo -E ./install.sh${NC}"
+        exit 1
+    fi
+else
+    # Running as regular user
+    INSTALL_DIR="$HOME/.local/bin"
+    ACTUAL_USER="$USER"
+fi
 
-# Create directories
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$APPS_DIR"
-mkdir -p "$ICONS_DIR"
+# Create installation directory if it doesn't exist
+if [ ! -d "$INSTALL_DIR" ]; then
+    echo -e "${BLUE}📁 Creating installation directory...${NC}"
+    mkdir -p "$INSTALL_DIR"
+    
+    if [ "$EUID" -eq 0 ]; then
+        chown "$ACTUAL_USER:$ACTUAL_USER" "$INSTALL_DIR"
+    fi
+fi
+
+# Remove existing symlink or file if it exists
+TARGET="$INSTALL_DIR/quick"
+if [ -L "$TARGET" ]; then
+    echo -e "${YELLOW}⚠ Removing existing symlink...${NC}"
+    rm "$TARGET"
+elif [ -f "$TARGET" ]; then
+    echo -e "${YELLOW}⚠ Removing existing installation...${NC}"
+    rm "$TARGET"
+fi
 
 # Install binary
-echo "📥 Installing binary..."
-cp "$SCRIPT_DIR/quick" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/quick"
-
-# Create 'quick' symlink
-echo "🔗 Creating 'quick' command..."
-ln -sf "$INSTALL_DIR/quick-notepad" "$INSTALL_DIR/quick"
-
-# Install desktop entry
-echo "🖥️  Installing desktop entry..."
-cp "$SCRIPT_DIR/assets/quick-notepad.desktop" "$APPS_DIR/"
-chmod +x "$APPS_DIR/quick-notepad.desktop"
-
-# Install icon
-echo "🎨 Installing icon..."
-cp "$SCRIPT_DIR/assets/icon.png" "$ICONS_DIR/icon.png"
-
-# Update databases
-if command -v update-desktop-database &> /dev/null; then
-    echo "🔄 Updating desktop database..."
-    update-desktop-database "$APPS_DIR" 2>/dev/null || true
+echo -e "${BLUE}📥 Installing binary...${NC}"
+if cp quick "$TARGET"; then
+    echo -e "${GREEN}✓ Binary installed to $TARGET${NC}"
+else
+    echo -e "${RED}✗ Failed to install binary${NC}"
+    exit 1
 fi
 
-if command -v gtk-update-icon-cache &> /dev/null; then
-    echo "🔄 Updating icon cache..."
-    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+# Set ownership if installed with sudo
+if [ "$EUID" -eq 0 ]; then
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$TARGET"
 fi
 
-# Check if in PATH
-echo ""
+# Make executable
+chmod +x "$TARGET"
+
+# Check if directory is in PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    echo "⚠️  Add to your ~/.bashrc or ~/.zshrc:"
-    echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
     echo ""
-    echo "Then reload:"
-    echo "    source ~/.bashrc"
+    echo -e "${YELLOW}⚠ Warning: $INSTALL_DIR is not in your PATH${NC}"
     echo ""
+    echo "Add this line to your ~/.bashrc or ~/.zshrc:"
+    echo -e "${BLUE}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+    echo ""
+    echo "Then run: source ~/.bashrc"
+else
+    echo -e "${GREEN}✓ Installation directory is in PATH${NC}"
 fi
 
-echo "╔════════════════════════════════════════╗"
-echo "║     Installation Complete! 🎉         ║"
-echo "╚════════════════════════════════════════╝"
 echo ""
-echo "Terminal (TUI) Mode:"
-echo "  quick                    # Start empty"
-echo "  quick file.txt           # Open file"
+echo -e "${GREEN}✓ Installation complete!${NC}"
 echo ""
-echo "GUI Mode:"
-echo "  quick --gui              # Start GUI"
-echo "  quick --gui file.txt     # Open in GUI"
-echo ""
-echo "Other:"
-echo "  quick --shortcuts        # Show shortcuts"
+echo "Run 'quick' to start Quick Notepad"
+echo "Run 'quick --help' for options"
 echo ""
 EOF
 
