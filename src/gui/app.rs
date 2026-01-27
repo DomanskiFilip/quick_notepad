@@ -1,6 +1,7 @@
-// app module specifying gui interface with core shortcuts integration
+// src/gui/app.rs
 use super::{editor::EditorPanel, state::EditorState, themes};
 use crate::core::actions::Action;
+use crate::core::updater::UpdateInfo;
 use egui::{Context, ViewportCommand};
 
 pub struct QuickNotepadApp {
@@ -106,15 +107,7 @@ impl QuickNotepadApp {
                         self.handle_action(Action::CheckUpdate);
                         ui.close();
                     }
-                    
-                    ui.separator();
-                    
-                    if ui.button("ℹ About").clicked() {
-                        self.show_about = true;
-                        ui.close();
-                    }
                 });
-
 
                 ui.menu_button("Tabs", |ui| {
                     for i in 1..=9 {
@@ -339,6 +332,7 @@ impl QuickNotepadApp {
                 }
             });
     }
+    
     fn show_update_dialog(&mut self, ctx: &Context) {
         let mut close_dialog = false;
         let mut perform_update = false;
@@ -382,7 +376,7 @@ impl QuickNotepadApp {
             match updater.perform_update() {
                 Ok(_) => {
                     eprintln!("Update successful! Please restart the application.");
-                    Optionally: ctx.send_viewport_cmd(ViewportCommand::Close);
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
                 }
                 Err(e) => {
                     eprintln!("Update failed: {}", e);
@@ -396,6 +390,25 @@ impl QuickNotepadApp {
         }
     }
 
+    fn check_for_updates_gui(&mut self) {
+        use crate::core::updater::Updater;
+        
+        let updater = Updater::new();
+        
+        match updater.check_for_updates() {
+            Ok(info) => {
+                if info.update_available {
+                    self.show_update_dialog = true;
+                    self.update_info = Some(info);
+                } else {
+                    eprintln!("No updates available. Running version {}", info.current_version);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to check for updates: {}", e);
+            }
+        }
+    }
 }
 
 impl eframe::App for QuickNotepadApp {
@@ -419,27 +432,6 @@ impl eframe::App for QuickNotepadApp {
         
         if self.show_update_dialog {
             self.show_update_dialog(ctx);
-        }
-    }
-    
-    fn check_for_updates_gui(&mut self) {
-        use crate::core::updater::Updater;
-        
-        let updater = Updater::new();
-        
-        match updater.check_for_updates() {
-            Ok(info) => {
-                if info.update_available {
-                    self.show_update_dialog = true;
-                    self.update_info = Some(info);
-                } else {
-                    // Show "no updates" message
-                    eprintln!("No updates available. Running version {}", info.current_version);
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to check for updates: {}", e);
-            }
         }
     }
 }
