@@ -38,7 +38,7 @@ A modern, dual-mode text editor written in Rust that runs both in the terminal (
  
  - Zero Heavy Dependencies: Built with minimal external crates
  
- - **size about 8MB, 1/4 times smaller than "micro" (12MB<)**
+ - **size about 8MB, compared to "micro" 12MB<**
 
 ## Commands
 
