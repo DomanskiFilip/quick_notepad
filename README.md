@@ -52,24 +52,22 @@ A modern, dual-mode text editor written in Rust that runs both in the terminal (
 | `quick --shortcuts` | Show all keyboard shortcuts |
 
 ## Installation
-
-### Linux
+download the app:
 ```bash
 wget https://github.com/DomanskiFilip/quick_notepad/releases/latest/download/quick
 ```
 
-make it executable
+make it executable:
 ```bash
 chmod +x quick
 ```
 
-run it first time for it to automatically install
+run it first time for it to automatically install:
 ```bash
 ./quick
 ```
 
-if the app doesnt show up try reloading your shell:
-
+### if the app doesnt show up try reloading your shell:
 ```bash
 # For Bash/Zsh:
 source ~/.bashrc
