@@ -1,6 +1,7 @@
-// src/gui/editor.rs - Editor with proper clipboard handling
+// src/gui/editor.rs - Editor with syntax highlighting
 use super::state::EditorState;
 use crate::core::selection::{Selection, TextPosition};
+use crate::core::syntax::SyntaxHighlighter;
 use egui::{Color32, FontId, Pos2, Rect, Response, Sense, Stroke, Ui};
 
 pub struct EditorPanel<'a> {
@@ -64,7 +65,6 @@ impl<'a> EditorPanel<'a> {
 
     fn handle_input(&mut self, ui: &mut Ui, response: &Response) {
         // Handle clipboard events - support both egui and arboard
-        // egui events provide Wayland compatibility, arboard handles the actual clipboard
         let mut should_copy = false;
         let mut should_cut = false;
         let mut paste_text: Option<String> = None;
@@ -89,7 +89,6 @@ impl<'a> EditorPanel<'a> {
         // Handle copy
         if should_copy {
             self.state.copy_selection();
-            // Also put it in egui's clipboard for cross-app compatibility
             if let Some(text) = self.state.get_clipboard_text() {
                 ui.ctx().copy_text(text.to_string());
             }
@@ -98,7 +97,6 @@ impl<'a> EditorPanel<'a> {
         // Handle cut
         if should_cut {
             self.state.cut_selection();
-            // Also put it in egui's clipboard
             if let Some(text) = self.state.get_clipboard_text() {
                 ui.ctx().copy_text(text.to_string());
             }
@@ -106,7 +104,6 @@ impl<'a> EditorPanel<'a> {
         
         // Handle paste
         if let Some(text) = paste_text {
-            // Delete selection first if it exists
             if let Some(selection) = self.state.selection.take() {
                 if selection.is_active() {
                     let (start, _) = selection.get_range();
@@ -406,6 +403,10 @@ impl<'a> EditorPanel<'a> {
             .map(|s| s.get_range());
     
         let buffer = self.state.current_buffer();
+        
+        // Get current filetype for syntax highlighting
+        let filetype = self.state.tab_manager.current_tab().filetype.clone();
+        let highlighter = SyntaxHighlighter::new(filetype);
     
         for (visual_idx, line_idx) in (scroll_line..end_line).enumerate() {
             let y_pos = rect.top() + visual_idx as f32 * row_height;
@@ -419,44 +420,37 @@ impl<'a> EditorPanel<'a> {
                 Color32::from_rgb(200, 160, 100),
             );
     
-            // Line content with selection
+            // Line content with syntax highlighting and selection
             if let Some(line) = buffer.lines.get(line_idx) {
                 let text_pos = Pos2::new(rect.left() + margin_width, y_pos);
-    
+                
+                // Get syntax tokens for this line
+                let tokens = highlighter.highlight_line(line);
+                
                 if let Some((start, end)) = selection_range {
                     if line_idx >= start.line && line_idx <= end.line {
+                        // Line has selection - render with both syntax and selection highlighting
                         let chars: Vec<char> = line.chars().collect();
                         let sel_start = if line_idx == start.line { start.column } else { 0 };
                         let sel_end = if line_idx == end.line { end.column } else { chars.len() };
-    
-                        // Before selection
-                        if sel_start > 0 {
-                            let before: String = chars[..sel_start].iter().collect();
-                            painter.text(text_pos, egui::Align2::LEFT_TOP, before, font_id.clone(), Color32::WHITE);
-                        }
-    
-                        // Selection
-                        if sel_start < chars.len() && sel_end > sel_start {
-                            let selected: String = chars[sel_start..sel_end.min(chars.len())].iter().collect();
-                            let sel_x = text_pos.x + sel_start as f32 * char_width;
-                            let sel_pos = Pos2::new(sel_x, y_pos);
-                            let sel_rect = Rect::from_min_size(sel_pos, egui::Vec2::new(selected.len() as f32 * char_width, row_height));
-                            
-                            painter.rect_filled(sel_rect, 0.0, Color32::from_rgb(50, 100, 200));
-                            painter.text(sel_pos, egui::Align2::LEFT_TOP, selected, font_id.clone(), Color32::WHITE);
-                        }
-    
-                        // After selection
-                        if sel_end < chars.len() {
-                            let after: String = chars[sel_end..].iter().collect();
-                            let after_x = text_pos.x + sel_end as f32 * char_width;
-                            painter.text(Pos2::new(after_x, y_pos), egui::Align2::LEFT_TOP, after, font_id.clone(), Color32::WHITE);
-                        }
+                        
+                        render_line_with_syntax_and_selection(
+                            &painter,
+                            &tokens,
+                            text_pos,
+                            char_width,
+                            row_height,
+                            sel_start,
+                            sel_end,
+                            &font_id,
+                        );
                     } else {
-                        painter.text(text_pos, egui::Align2::LEFT_TOP, line, font_id.clone(), Color32::WHITE);
+                        // No selection on this line - just render with syntax highlighting
+                        render_line_with_syntax(&painter, &tokens, text_pos, &font_id);
                     }
                 } else {
-                    painter.text(text_pos, egui::Align2::LEFT_TOP, line, font_id.clone(), Color32::WHITE);
+                    // No selection at all - just render with syntax highlighting
+                    render_line_with_syntax(&painter, &tokens, text_pos, &font_id);
                 }
             }
     
@@ -469,5 +463,80 @@ impl<'a> EditorPanel<'a> {
                 );
             }
         }
+    }
+}
+
+// Helper function to render a line with syntax highlighting only
+fn render_line_with_syntax(
+    painter: &egui::Painter,
+    tokens: &[crate::core::syntax::Token],
+    mut pos: Pos2,
+    font_id: &FontId,
+) {
+    for token in tokens {
+        let (r, g, b) = token.token_type.rgb();
+        let color = Color32::from_rgb(r, g, b);
+        painter.text(pos, egui::Align2::LEFT_TOP, &token.text, font_id.clone(), color);
+        pos.x += token.text.len() as f32 * 8.4; // char_width
+    }
+}
+
+// Helper function to render a line with both syntax highlighting and selection
+fn render_line_with_syntax_and_selection(
+    painter: &egui::Painter,
+    tokens: &[crate::core::syntax::Token],
+    base_pos: Pos2,
+    char_width: f32,
+    row_height: f32,
+    sel_start: usize,
+    sel_end: usize,
+    font_id: &FontId,
+) {
+    let mut char_pos = 0;
+    let mut x_offset = 0.0;
+    
+    for token in tokens {
+        let token_len = token.text.chars().count();
+        let token_end = char_pos + token_len;
+        let (r, g, b) = token.token_type.rgb();
+        let syntax_color = Color32::from_rgb(r, g, b);
+        
+        if token_end <= sel_start || char_pos >= sel_end {
+            // Token is completely outside selection
+            let pos = Pos2::new(base_pos.x + x_offset, base_pos.y);
+            painter.text(pos, egui::Align2::LEFT_TOP, &token.text, font_id.clone(), syntax_color);
+            x_offset += token.text.len() as f32 * char_width;
+        } else if char_pos >= sel_start && token_end <= sel_end {
+            // Token is completely inside selection
+            let pos = Pos2::new(base_pos.x + x_offset, base_pos.y);
+            let sel_rect = Rect::from_min_size(
+                pos,
+                egui::Vec2::new(token.text.len() as f32 * char_width, row_height)
+            );
+            painter.rect_filled(sel_rect, 0.0, Color32::from_rgb(50, 100, 200));
+            painter.text(pos, egui::Align2::LEFT_TOP, &token.text, font_id.clone(), Color32::WHITE);
+            x_offset += token.text.len() as f32 * char_width;
+        } else {
+            // Token is partially selected - render character by character
+            let token_chars: Vec<char> = token.text.chars().collect();
+            for (i, ch) in token_chars.iter().enumerate() {
+                let abs_pos = char_pos + i;
+                let pos = Pos2::new(base_pos.x + x_offset, base_pos.y);
+                
+                if abs_pos >= sel_start && abs_pos < sel_end {
+                    // Character is selected
+                    let sel_rect = Rect::from_min_size(pos, egui::Vec2::new(char_width, row_height));
+                    painter.rect_filled(sel_rect, 0.0, Color32::from_rgb(50, 100, 200));
+                    painter.text(pos, egui::Align2::LEFT_TOP, ch.to_string(), font_id.clone(), Color32::WHITE);
+                } else {
+                    // Character is not selected - use syntax color
+                    painter.text(pos, egui::Align2::LEFT_TOP, ch.to_string(), font_id.clone(), syntax_color);
+                }
+                
+                x_offset += char_width;
+            }
+        }
+        
+        char_pos = token_end;
     }
 }

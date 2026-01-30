@@ -6,7 +6,7 @@ use crate::core::selection::TextPosition;
 use crate::tui::{
     caret::{Caret, Position},
     terminal::Terminal,
-    syntax::{SyntaxHighlighter},
+    syntax::{SyntaxHighlighter, TokenTypeExt},
 };
 use crossterm::{
     cursor::MoveTo,
@@ -390,7 +390,7 @@ fn render_line_with_selection_and_syntax(
 }
 
 // Helper: Render tokens with syntax highlighting (no selection)
-fn render_tokens(tokens: &[crate::tui::syntax::Token]) -> Result<(), Error> {
+fn render_tokens(tokens: &[crate::core::syntax::Token]) -> Result<(), Error> {
     for token in tokens {
         print_text_colored(&token.text, token.token_type.color())?;
     }
@@ -399,7 +399,7 @@ fn render_tokens(tokens: &[crate::tui::syntax::Token]) -> Result<(), Error> {
 
 // Helper: Render tokens with both syntax highlighting and selection
 fn render_tokens_with_selection(
-    tokens: &[crate::tui::syntax::Token],
+    tokens: &[crate::core::syntax::Token],
     sel_start: usize,
     sel_end: usize,
 ) -> Result<(), Error> {
@@ -429,7 +429,7 @@ fn render_tokens_with_selection(
 
 // Helper: Render a token that's partially selected
 fn render_token_partial_selection(
-    token: &crate::tui::syntax::Token,
+    token: &crate::core::syntax::Token,
     char_pos: usize,
     sel_start: usize,
     sel_end: usize,
