@@ -39,43 +39,31 @@ impl Updater {
 
     // Check if an update is available
     pub fn check_for_updates(&self) -> Result<UpdateInfo, Box<dyn std::error::Error>> {
-        eprintln!("=== UPDATE CHECK DEBUG ===");
-        eprintln!("Repository: {}", self.repo);
-        eprintln!("Current version: {}", CURRENT_VERSION);
         
         let client = match reqwest::blocking::Client::builder()
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(10))
             .build() {
-                Ok(c) => {
-                    eprintln!("✓ HTTP client created");
-                    c
+                Ok(created) => {
+                    created
                 }
-                Err(e) => {
-                    eprintln!("✗ Failed to create HTTP client: {}", e);
-                    return Err(format!("Failed to create HTTP client: {}", e).into());
+                Err(error) => {
+                    return Err(format!("Failed to create HTTP client: {}", error).into());
                 }
             };
         
         let release_url = format!("https://api.github.com/repos/{}/releases/latest", self.repo);
-        eprintln!("Fetching: {}", release_url);
-        
         let response = match client.get(&release_url).send() {
-            Ok(r) => {
-                eprintln!("✓ Request sent successfully");
-                r
+            Ok(request) => {
+                request
             }
-            Err(e) => {
-                eprintln!("✗ Network error: {}", e);
-                return Err(format!("Network error: {}. Check your internet connection.", e).into());
+            Err(error) => {
+                return Err(format!("Network error: {}. Check your internet connection.", error).into());
             }
         };
         
         let status = response.status();
-        eprintln!("Response status: {} ({})", status, status.as_u16());
-        
         if status.as_u16() == 404 {
-            eprintln!("✗ 404 Not Found - Repository or releases don't exist");
             return Err("Repository not found or no releases available.\n\
                 Repository: DomanskiFilip/quick_notepad\n\
                 Make sure releases exist (not just tags)".into());
@@ -83,37 +71,20 @@ impl Updater {
         
         if !status.is_success() {
             let body = response.text().unwrap_or_else(|_| "Could not read response body".to_string());
-            eprintln!("✗ HTTP error. Response body: {}", body);
             return Err(format!("Failed to fetch releases: {} (status: {})\nResponse: {}", 
                 status, status.as_u16(), body).into());
         }
-        
-        eprintln!("✓ Got successful response, parsing JSON...");
-        
         let release: GitHubRelease = match response.json() {
-            Ok(r) => {
-                eprintln!("✓ JSON parsed successfully");
-                r
+            Ok(response) => {
+                response
             }
-            Err(e) => {
-                eprintln!("✗ Failed to parse JSON: {}", e);
-                return Err(format!("Failed to parse release data: {}", e).into());
+            Err(error) => {
+                return Err(format!("Failed to parse release data: {}", error).into());
             }
         };
-        
-        eprintln!("Latest release tag: {}", release.tag_name);
-        eprintln!("Number of assets: {}", release.assets.len());
-        
         let latest_version = release.tag_name.trim_start_matches('v');
         let current_version = CURRENT_VERSION;
-        
-        eprintln!("Comparing versions: {} vs {}", current_version, latest_version);
-        
         let update_available = Self::is_newer_version(current_version, latest_version);
-        
-        eprintln!("Update available: {}", update_available);
-        eprintln!("=== END DEBUG ===");
-        
         Ok(UpdateInfo {
             current_version: current_version.to_string(),
             latest_version: latest_version.to_string(),
