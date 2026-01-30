@@ -20,13 +20,9 @@ A modern, dual-mode text editor written in Rust that runs both in the terminal (
  
  - Undo/Redo: Full edit history with intelligent grouping
 
-## Advanced Features
-
  - Mouse Support: Click, drag, double-click, triple-click selection
  
  - Wayland Clipboard Integration: Works seamlessly with system clipboard
- 
- - Smart Selection: Word and line selection modes
  
  - Configurable Shortcuts: All shortcuts in one place (for now you need to change in: src/core/shortcuts.rs)
 
@@ -51,7 +47,7 @@ A modern, dual-mode text editor written in Rust that runs both in the terminal (
 | `quick <file> --gui` | Open file in GUI (alternative) |
 | `quick --shortcuts` | Show all keyboard shortcuts |
 
-## Installation
+## Installation (LINUX)
 ### step by step:
 download the app:
 ```bash
