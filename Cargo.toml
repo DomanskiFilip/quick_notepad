@@ -1,6 +1,6 @@
 [package]
 name = "quick-notepad"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Filip Domanski"]
 edition = "2021"
 description = "A modern dual-mode text editor for terminal and GUI"
