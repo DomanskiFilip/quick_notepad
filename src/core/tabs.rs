@@ -84,20 +84,22 @@ impl TabManager {
     pub fn new(initial_buffer: Buffer, filename: Option<String>, filetype: Option<String>) -> Self {
         let session_file = Self::get_session_file_path();
         
-        // Try to load previous session
-        let manager = if let Ok(session) = Self::load_session(&session_file) {
-            Self::from_session(session)
-        } else {
-            let initial_tab = Tab::new(initial_buffer, filename, None, filetype);
-            Self {
-                tabs: vec![initial_tab],
-                active_tab_index: 0,
-                max_tabs: 10,
-                session_file,
+        // Check if we are starting truly "fresh" (no filename provided)
+        // If we have a filename, we should skip session loading to prioritize the new file
+        if filename.is_none() {
+            if let Ok(session) = Self::load_session(&session_file) {
+                return Self::from_session(session);
             }
-        };
-        
-        manager
+        }
+    
+        // Default behavior if session load fails or a file was specified
+        let initial_tab = Tab::new(initial_buffer, filename, None, filetype);
+        Self {
+            tabs: vec![initial_tab],
+            active_tab_index: 0,
+            max_tabs: 10,
+            session_file,
+        }
     }
 
     fn get_session_file_path() -> PathBuf {

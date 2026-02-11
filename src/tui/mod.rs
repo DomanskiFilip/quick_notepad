@@ -193,11 +193,8 @@ impl TerminalEditor {
         }
 
         // Create a new tab at start if quick started without a path
-        if self.start_on_tab_zero {
-            let _ = match self.open_file_in_new_tab() {
-                Ok(_) => Ok(()),
-                Err(e) => Err(e),
-            };
+        if self.start_on_tab_zero && self.tab_manager.tabs.is_empty() {
+            let _ = self.open_file_in_new_tab();
         }
         
         self.sync_view_to_tab();
@@ -593,7 +590,6 @@ impl TerminalEditor {
     fn save_file(&mut self) -> Result<(), std::io::Error> {
         use std::fs;
 
-        // CRITICAL FIX: Use filepath (full path) instead of filename (display name)
         let filepath_opt = self.tab_manager.current_tab().filepath.clone();
 
         if let Some(filepath) = filepath_opt {

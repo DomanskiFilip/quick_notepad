@@ -48,5 +48,4 @@ pub enum Action {
     
     // Updateing 
     CheckUpdate,
-    PerformUpdate,
 }

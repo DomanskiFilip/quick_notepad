@@ -1,11 +1,8 @@
 // TUI-specific syntax highlighting wrapper
 // This wraps the core syntax module and provides crossterm Color conversion
 
-use crate::core::syntax::{SyntaxHighlighter as CoreHighlighter, Token as CoreToken, TokenType};
+use crate::core::syntax::{SyntaxHighlighter as CoreHighlighter, TokenType};
 use crossterm::style::Color;
-
-// Re-export the core types
-pub use crate::core::syntax::{Token, TokenType as TokenTypeCore};
 
 // Extension trait to add color method for TUI
 pub trait TokenTypeExt {
