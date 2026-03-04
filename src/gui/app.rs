@@ -141,6 +141,11 @@ impl QuickNotepadApp {
                     self.state.cursor_pos.column + 1
                 ));
 
+                ui.separator();
+                let version = env!("CARGO_PKG_VERSION");
+                ui.label(format!("v{}", version));
+
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label("© Filip Domanski");
                     ui.separator();
