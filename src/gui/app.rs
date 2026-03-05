@@ -244,7 +244,7 @@ impl QuickNotepadApp {
             }
             Action::Search => {
                 self.state.search_active = true;
-                self.dialog_has_focus = true;
+                self.dialog_has_focus = true; 
             }
             Action::SelectAll => {
                 self.state.select_all();
@@ -422,6 +422,10 @@ impl eframe::App for QuickNotepadApp {
         self.handle_shortcuts(ctx);
         self.menu_bar(ctx);
         self.status_bar(ctx);
+
+        if !self.state.search_active && !self.show_save_dialog && !self.show_update_dialog {
+            self.dialog_has_focus = false;
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             EditorPanel::new(&mut self.state, !self.dialog_has_focus).show(ui);

@@ -15,51 +15,80 @@ impl<'a> EditorPanel<'a> {
     }
 
     pub fn show(&mut self, ui: &mut Ui) -> Response {
+        let was_search_active = self.state.search_active;
+    
         if self.state.search_active {
             self.show_search_bar(ui);
         }
-
+    
         let available_rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(available_rect, Sense::click_and_drag());
-
+    
+        if was_search_active && !self.state.search_active {
+            let search_id = egui::Id::new("search_bar_input");
+            ui.ctx().memory_mut(|m| m.surrender_focus(search_id));
+        }
+    
         if self.accepts_input {
             self.handle_input(ui, &response);
         }
-
+    
         self.render_content(ui, &response, available_rect);
-
+    
         response
     }
 
     fn show_search_bar(&mut self, ui: &mut Ui) {
+        let mut close_search = false;
+        let mut do_search = false;
+        let mut do_next = false;
+        let mut do_prev = false;
+    
         ui.horizontal(|ui| {
             ui.label("🔍");
-            let response = ui.text_edit_singleline(&mut self.state.search_query);
-
-            response.request_focus();
-
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.state.search_active = false;
-                self.state.search_query.clear();
+            let response = egui::TextEdit::singleline(&mut self.state.search_query)
+                .id(egui::Id::new("search_bar_input"))
+                .show(ui)
+                .response;
+    
+            // Auto-focus when search bar first appears
+            if !response.has_focus() && self.state.search_results.is_empty() {
+                response.request_focus();
             }
-
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                self.state.perform_search();
+    
+            // Enter = search / next match
+            if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                do_search = true;
             }
-
-            if ui.button("Next").clicked() {
-                self.state.next_search_match();
+    
+            // Escape closes search (checked while focused)
+            if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                close_search = true;
             }
-
-            if ui.button("Prev").clicked() {
-                self.state.prev_search_match();
+    
+            // Live search as user types
+            if response.changed() {
+                do_search = true;
             }
-
-            if ui.button("✕").clicked() {
-                self.state.search_active = false;
-                self.state.search_query.clear();
-            }
+    
+            if ui.button("Next").clicked() { do_next = true; }
+            if ui.button("Prev").clicked() { do_prev = true; }
+            if ui.button("X").clicked()   { close_search = true; }
         });
+    
+        // Act on deferred flags (avoids borrow issues inside the closure)
+        if close_search {
+            self.state.clear_search();
+            // Release focus back to the editor area on next frame
+            ui.ctx().memory_mut(|m| m.stop_text_input());
+        } else if do_search {
+            self.state.perform_search();
+        } else if do_next {
+            self.state.next_search_match();
+        } else if do_prev {
+            self.state.prev_search_match();
+        }
+    
         ui.separator();
     }
 

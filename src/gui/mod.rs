@@ -38,7 +38,6 @@ fn setup_custom_fonts(ctx: &egui::Context) {
 
 fn load_icon() -> egui::IconData {
     // Load icon from embedded resource or file
-    // For now, return a default/empty icon
     egui::IconData {
         rgba: vec![0; 4],
         width: 1,

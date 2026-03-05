@@ -13,12 +13,11 @@ pub struct EditorState {
     pub scroll_offset: (usize, usize), // (line, column)
     pub search_query: String,
     pub search_active: bool,
+    pub search_results: Vec<(usize, usize)>,
+    pub search_result_idx: usize,
     pub is_dragging: bool,
-    // Dual clipboard approach:
-    // - arboard handles actual system clipboard (works on X11 and most Wayland)
-    // - internal clipboard_text as fallback for edge cases
-    // - egui events provide Wayland compatibility layer
     clipboard_text: Option<String>,
+    
 }
 
 impl EditorState {
@@ -42,6 +41,8 @@ impl EditorState {
             search_active: false,
             is_dragging: false,
             clipboard_text: None,
+            search_results: Vec::new(),
+            search_result_idx: 0,
         }
     }
 
@@ -71,10 +72,6 @@ impl EditorState {
 
     pub fn current_filename(&self) -> Option<&str> {
         self.tab_manager.current_tab().filename.as_deref()
-    }
-
-    pub fn set_filename(&mut self, filename: String) {
-        self.tab_manager.current_tab_mut().filename = Some(filename);
     }
 
     // Insert text at cursor position
@@ -409,43 +406,89 @@ impl EditorState {
     // Search functionality
     pub fn perform_search(&mut self) {
         if self.search_query.is_empty() {
+            self.search_results.clear();
+            self.search_result_idx = 0;
             return;
         }
-
+    
         let query = self.search_query.to_lowercase();
-        let mut matches = Vec::new();
-
+        let mut matches: Vec<(usize, usize)> = Vec::new(); // (line, col)
+    
         for (line_idx, line) in self.current_buffer().lines.iter().enumerate() {
             let line_lower = line.to_lowercase();
             let mut start = 0;
-
             while let Some(pos) = line_lower[start..].find(&query) {
-                matches.push(TextPosition {
-                    line: line_idx,
-                    column: start + pos,
-                });
+                matches.push((line_idx, start + pos));
                 start += pos + 1;
             }
         }
-
-        if !matches.is_empty() {
-            let first = matches[0];
-            self.cursor_pos = first;
+    
+        if matches.is_empty() {
+            self.search_results = matches;
+            self.search_result_idx = 0;
+            return;
+        }
+    
+        // Find the match closest to current cursor
+        let cur = self.cursor_pos;
+        let idx = matches
+            .iter()
+            .position(|&(line, col)| line > cur.line || (line == cur.line && col >= cur.column))
+            .unwrap_or(0);
+    
+        self.search_results = matches;
+        self.search_result_idx = idx;
+        self.jump_to_current_match();
+    }
+    
+    pub fn next_search_match(&mut self) {
+        if self.search_results.is_empty() {
+            self.perform_search();
+            return;
+        }
+        self.search_result_idx = (self.search_result_idx + 1) % self.search_results.len();
+        self.jump_to_current_match();
+    }
+    
+    pub fn prev_search_match(&mut self) {
+        if self.search_results.is_empty() {
+            self.perform_search();
+            return;
+        }
+        self.search_result_idx = if self.search_result_idx == 0 {
+            self.search_results.len() - 1
+        } else {
+            self.search_result_idx - 1
+        };
+        self.jump_to_current_match();
+    }
+    
+    fn jump_to_current_match(&mut self) {
+        if let Some(&(line, col)) = self.search_results.get(self.search_result_idx) {
+            let end_col = col + self.search_query.len();
+            self.cursor_pos = TextPosition { line, column: col };
             self.selection = Some(Selection {
-                anchor: first,
-                cursor: TextPosition {
-                    line: first.line,
-                    column: first.column + self.search_query.len(),
-                },
+                anchor: TextPosition { line, column: col },
+                cursor: TextPosition { line, column: end_col },
             });
+            // Scroll to keep match visible
+            self.ensure_cursor_visible();
         }
     }
-
-    pub fn next_search_match(&mut self) {
-        self.perform_search();
+    
+    pub fn clear_search(&mut self) {
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_results.clear();
+        self.search_result_idx = 0;
+        self.selection = None;
     }
-
-    pub fn prev_search_match(&mut self) {
-        self.perform_search();
+    
+    fn ensure_cursor_visible(&mut self) {
+        let line = self.cursor_pos.line;
+        if line < self.scroll_offset.0 {
+            self.scroll_offset.0 = line;
+        }
+        // The lower bound is handled by render_content's visible_rows clamp
     }
 }
