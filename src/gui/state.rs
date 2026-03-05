@@ -236,17 +236,30 @@ impl EditorState {
 
     // Save current file
     pub fn save(&mut self) -> Result<(), std::io::Error> {
-        if let Some(filename) = self.current_filename() {
-            let filename = filename.to_string();
-            self.save_as(&filename)?;
+        if let Some(filepath) = self.tab_manager.current_tab().filepath.clone() {
+            self.save_as(&filepath)?;
         }
         Ok(())
     }
-
+    
     // Save as new file
     pub fn save_as(&mut self, path: &str) -> Result<(), std::io::Error> {
         use std::fs;
-
+    
+        let path_buf = std::fs::canonicalize(path)
+            .unwrap_or_else(|_| {
+                // File doesn't exist yet — build absolute path manually
+                let mut current_dir = std::env::current_dir().unwrap_or_default();
+                current_dir.push(path);
+                current_dir
+            });
+    
+        let full_path = path_buf.to_string_lossy().into_owned();
+        let display_name = path_buf
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| full_path.clone());
+    
         let buffer = self.current_buffer();
         let last_line = buffer
             .lines
@@ -255,13 +268,16 @@ impl EditorState {
             .unwrap_or(0);
         let content_lines: Vec<String> = buffer.lines.iter().take(last_line + 1).cloned().collect();
         let content = content_lines.join("\n");
-
-        fs::write(path, content)?;
-        self.set_filename(path.to_string());
+    
+        fs::write(&full_path, content)?;
+    
+        // Update BOTH filepath (full path for saving) and filename (display name)
+        self.tab_manager.current_tab_mut().filepath = Some(full_path);
+        self.tab_manager.current_tab_mut().filename = Some(display_name);
         self.mark_clean();
-
+    
         let _ = self.tab_manager.save_session();
-
+    
         Ok(())
     }
 
