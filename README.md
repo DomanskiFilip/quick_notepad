@@ -3,6 +3,8 @@ A modern, dual-mode text editor written in Rust that runs both in the terminal (
 
 ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)
 
+[website](https://adappstudio.co.uk/Filip/quick/)
+
 # Features
 ## Core Functionality
 
@@ -92,5 +94,3 @@ as you can see source has my build script: ./build-dist.sh which creates these s
 
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/74ae2248-706e-4970-ada4-f67a48003c86" />
 icon generated using nano banana
-
-[website](https://adappstudio.co.uk/Filip/quick/)
