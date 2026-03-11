@@ -14,8 +14,6 @@ A modern, dual-mode text editor written in Rust that runs both in the terminal (
  
  - Multi-Tab Interface: Up to 10 tabs with session persistence
  
- - Auto-Save Sessions: Never lose your work
- 
  - Search & Navigation: Fast text search with match highlighting
  
  - Undo/Redo: Full edit history with intelligent grouping
@@ -95,18 +93,4 @@ as you can see source has my build script: ./build-dist.sh which creates these s
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/74ae2248-706e-4970-ada4-f67a48003c86" />
 icon generated using nano banana
 
-# LICENSE
-
-Copyright (c) 2026 Filip Domanski
-
-quick notepad is provided for personal, non-commercial use only. You may view, download, and run the application or source code for your own personal purposes.
-
-You may not:
-- Redistribute, host, or publish the code or application in any form, whether modified or unmodified.
-- Monetize, sell, or offer the code or application as a service.
-- Create forks or derivative works for distribution or public hosting.
-- Use the code or application in any commercial context.
-
-Filip Domanski is the exclusive host and distributor of quick notepad. For commercial or redistribution inquiries, contact the copyright holder.
-
-All rights reserved.
+[website](https://adappstudio.co.uk/Filip/quick/)
