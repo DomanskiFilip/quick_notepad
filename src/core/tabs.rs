@@ -32,31 +32,30 @@ impl Tab {
         }
     }
 
+    pub fn blank() -> Self {
+        Self::new(Buffer::default(), None, None, None)
+    }
+
     pub fn from_file(path: &str) -> Result<Self, Error> {
         let path_buf = std::fs::canonicalize(path)
             .unwrap_or_else(|_| std::path::PathBuf::from(path));
-    
-        // Get the filename for display
+
         let display_name = path_buf
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| path_buf.to_string_lossy().into_owned());
-    
-        // Store the FULL PATH for saving
+
         let full_path = path_buf.to_string_lossy().into_owned();
-    
-        // Extract the file extension
         let raw_ext = path_buf.extension().map(|ext| ext.to_string_lossy().into_owned());
         let friendly_filetype = get_friendly_filetype(raw_ext);
-    
+
         let content = std::fs::read_to_string(&path_buf)?;
         let buffer = Buffer::from_string(content);
-        
+
         Ok(Self::new(buffer, Some(display_name), Some(full_path), friendly_filetype))
     }
 }
 
-// Serializable tab info for persistence
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct TabInfo {
     filename: Option<String>,
@@ -81,24 +80,73 @@ pub struct TabManager {
 }
 
 impl TabManager {
-    pub fn new(initial_buffer: Buffer, filename: Option<String>, filetype: Option<String>) -> Self {
+    // User ran `quick` with no arguments — restore last session or start with one blank tab.
+    pub fn restore_or_blank() -> Self {
         let session_file = Self::get_session_file_path();
-        
-        // Check if we are starting truly "fresh" (no filename provided)
-        // If we have a filename, we should skip session loading to prioritize the new file
-        if filename.is_none() {
-            if let Ok(session) = Self::load_session(&session_file) {
-                return Self::from_session(session);
+        if let Ok(session) = Self::load_session(&session_file) {
+            return Self::from_session(session, session_file);
+        }
+        Self {
+            tabs: vec![Tab::blank()],
+            active_tab_index: 0,
+            max_tabs: 10,
+            session_file,
+        }
+    }
+
+    // User ran `quick somefile.txt` — that file is tab 1, prior session tabs follow.
+    pub fn with_file(path: &str) -> Result<Self, Error> {
+        let session_file = Self::get_session_file_path();
+
+        let first_tab = Tab::from_file(path)?;
+        let first_filepath = first_tab.filepath.clone();
+        let mut tabs: Vec<Tab> = vec![first_tab];
+
+        if let Ok(session) = Self::load_session(&session_file) {
+            for tab_info in session.tabs {
+                if tabs.len() >= 10 {
+                    break;
+                }
+                // Skip the file we already opened as tab 1
+                if tab_info.filepath.as_deref() == first_filepath.as_deref() {
+                    continue;
+                }
+                // Skip blank session tabs when opening a specific file
+                let Some(ref filepath) = tab_info.filepath else { continue };
+                match Tab::from_file(filepath) {
+                    Ok(mut t) => {
+                        t.filetype = tab_info.filetype;
+                        t.scroll_offset = tab_info.scroll_offset;
+                        t.cursor_pos = Position {
+                            x: tab_info.cursor_col,
+                            y: tab_info.cursor_line,
+                        };
+                        tabs.push(t);
+                    }
+                    Err(_) => continue, // Skip files that no longer exist on disk
+                }
             }
         }
-    
-        // Default behavior if session load fails or a file was specified
+
+        Ok(Self {
+            tabs,
+            active_tab_index: 0,
+            max_tabs: 10,
+            session_file,
+        })
+    }
+
+    // Compatibility shim — prefer restore_or_blank() or with_file().
+    pub fn new(initial_buffer: Buffer, filename: Option<String>, filetype: Option<String>) -> Self {
+        if filename.is_none() {
+            return Self::restore_or_blank();
+        }
         let initial_tab = Tab::new(initial_buffer, filename, None, filetype);
         Self {
             tabs: vec![initial_tab],
             active_tab_index: 0,
             max_tabs: 10,
-            session_file,
+            session_file: Self::get_session_file_path(),
         }
     }
 
@@ -106,12 +154,9 @@ impl TabManager {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
         path.push(".quicknotepad");
-        
-        // Create directory if it doesn't exist
         if let Err(e) = fs::create_dir_all(&path) {
             eprintln!("Warning: Could not create .quicknotepad directory: {}", e);
         }
-        
         path.push("tabs.json");
         path
     }
@@ -122,15 +167,16 @@ impl TabManager {
             .map_err(|e| Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
-    fn from_session(session: TabSession) -> Self {
+    fn from_session(session: TabSession, session_file: PathBuf) -> Self {
         let mut tabs = Vec::new();
-        
+
         for tab_info in session.tabs {
+            if tabs.len() >= 10 {
+                break;
+            }
             let tab = if let Some(ref filepath) = tab_info.filepath {
-                // Use the FULL PATH to load the file
                 match Tab::from_file(filepath) {
                     Ok(mut t) => {
-                        // Apply the saved metadata
                         t.filetype = tab_info.filetype.clone();
                         t.scroll_offset = tab_info.scroll_offset;
                         t.cursor_pos = Position {
@@ -141,29 +187,26 @@ impl TabManager {
                     }
                     Err(e) => {
                         eprintln!("Could not load file {}: {}", filepath, e);
-                        Tab::new(Buffer::default(), None, None, None)
+                        continue; // Skip missing files instead of inserting blank
                     }
                 }
             } else {
-                // Fallback for old sessions without filepath
-                Tab::new(Buffer::default(), tab_info.filename.clone(), None, None)
+                Tab::blank()
             };
-            
             tabs.push(tab);
         }
-        
-        // Ensure at least one tab exists
+
         if tabs.is_empty() {
-            tabs.push(Tab::new(Buffer::default(), None, None, None));
+            tabs.push(Tab::blank());
         }
-        
+
         let active_index = session.active_tab_index.min(tabs.len() - 1);
-        
+
         Self {
             tabs,
             active_tab_index: active_index,
             max_tabs: 10,
-            session_file: Self::get_session_file_path(),
+            session_file,
         }
     }
 
@@ -176,15 +219,15 @@ impl TabManager {
             cursor_line: tab.cursor_pos.y,
             cursor_col: tab.cursor_pos.x,
         }).collect();
-        
+
         let session = TabSession {
             tabs: tab_infos,
             active_tab_index: self.active_tab_index,
         };
-        
+
         let json = serde_json::to_string_pretty(&session)
             .map_err(|e| Error::new(std::io::ErrorKind::InvalidData, e))?;
-        
+
         fs::write(&self.session_file, json)?;
         Ok(())
     }
@@ -198,48 +241,33 @@ impl TabManager {
     }
 
     pub fn switch_to_tab(&mut self, tab_number: usize) -> Result<(), Error> {
-        if tab_number < 1 || tab_number > self.max_tabs {
+        if tab_number < 1 {
             return Ok(());
         }
-
         let tab_index = tab_number - 1;
-
         if tab_index >= self.tabs.len() {
             return Ok(());
         }
-
         self.active_tab_index = tab_index;
-        
-        // Save session after switching
         let _ = self.save_session();
         Ok(())
     }
 
-    // Create new tab at position 1, shift everything else down
+    // Open a new blank tab, append at end, switch to it.
     pub fn new_tab(&mut self) -> usize {
-        // If at max capacity, remove the last tab (oldest/least used)
         if self.tabs.len() >= self.max_tabs {
+            // Remove the oldest tab (last element) when the limit is reached
             self.tabs.pop();
         }
-
-        // Create new tab
-        let new_tab = Tab::new(Buffer::default(), None, None, None);
-        
-        // Insert at position 0 (tab 1)
-        self.tabs.insert(0, new_tab);
-        
-        // New tab becomes active (at index 0)
-        self.active_tab_index = 0;
-        
-        // Save session after creating new tab
+        // Insert the new blank tab at the beginning (index 0)
+        self.tabs.insert(0, Tab::blank());
+        self.active_tab_index = 0; // The new tab is now the active one
         let _ = self.save_session();
-        
-        0
+        self.active_tab_index
     }
 
-    // Open file in tab 1, push everything else down
+    // Open a file. If already open, switch to it. Otherwise append and switch.
     pub fn open_file_in_new_tab(&mut self, path: &str) -> Result<usize, Error> {
-        // Check if file is already open (compare by filepath)
         for (i, tab) in self.tabs.iter().enumerate() {
             if let Some(ref filepath) = tab.filepath {
                 if filepath == path {
@@ -249,38 +277,30 @@ impl TabManager {
                 }
             }
         }
-
-        // If at max capacity, remove last tab
         if self.tabs.len() >= self.max_tabs {
             self.tabs.pop();
         }
-
-        // Load file
         let new_tab = Tab::from_file(path)?;
-        
-        // Insert at position 0 (tab 1)
-        self.tabs.insert(0, new_tab);
-        self.active_tab_index = 0;
-        
-        // Save session
+        self.tabs.push(new_tab);
+        self.active_tab_index = self.tabs.len() - 1;
         let _ = self.save_session();
-        
-        Ok(0)
+        Ok(self.active_tab_index)
+    }
+
+    pub fn tab_count(&self) -> usize {
+        self.tabs.len()
     }
 }
 
-// Save session on drop
 impl Drop for TabManager {
     fn drop(&mut self) {
         let _ = self.save_session();
     }
 }
 
-// utility for filetypes
 pub fn get_friendly_filetype(extension: Option<String>) -> Option<String> {
     extension.map(|ext| {
         match ext.to_lowercase().as_str() {
-            // Programming Languages
             "rs" => "Rust".to_string(),
             "py" | "pyw" => "Python".to_string(),
             "js" | "mjs" => "JavaScript".to_string(),
@@ -302,16 +322,12 @@ pub fn get_friendly_filetype(extension: Option<String>) -> Option<String> {
             "hs" => "Haskell".to_string(),
             "zig" => "Zig".to_string(),
             "nim" => "Nim".to_string(),
-
-            // Web Technologies
             "html" | "htm" => "HTML".to_string(),
             "css" => "CSS".to_string(),
             "scss" | "sass" => "Sass".to_string(),
             "jsx" => "React JSX".to_string(),
             "tsx" => "React TSX".to_string(),
             "vue" => "Vue".to_string(),
-
-            // Configuration & Data
             "json" => "JSON".to_string(),
             "toml" => "TOML".to_string(),
             "yaml" | "yml" => "YAML".to_string(),
@@ -319,23 +335,17 @@ pub fn get_friendly_filetype(extension: Option<String>) -> Option<String> {
             "ini" | "conf" | "cfg" => "Config".to_string(),
             "sql" => "SQL Query".to_string(),
             "env" => "Environment".to_string(),
-            
-            // Shell & Scripts
             "sh" => "Shell Script".to_string(),
             "bash" => "Bash Script".to_string(),
             "zsh" => "Zsh Script".to_string(),
             "ps1" => "PowerShell".to_string(),
             "bat" | "cmd" => "Batch File".to_string(),
             "make" | "mak" => "Makefile".to_string(),
-
-            // Documentation & Text
             "txt" => "Text File".to_string(),
             "md" | "markdown" => "Markdown".to_string(),
             "log" => "Log File".to_string(),
             "csv" => "CSV Data".to_string(),
             "tex" => "LaTeX".to_string(),
-            
-            // Fallback
             _ => ext.to_uppercase(),
         }
     })

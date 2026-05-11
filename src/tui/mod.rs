@@ -1,12 +1,12 @@
-// module binding tui logic, consumeing shortcuts and save logic
+// module binding tui logic, consuming shortcuts and save logic
 pub mod caret;
 mod terminal;
 pub mod syntax;
 pub mod view;
 
 use crate::core::{
-    actions::Action, 
-    shortcuts::Shortcuts, 
+    actions::Action,
+    shortcuts::Shortcuts,
     tabs::{TabManager, get_friendly_filetype},
     updater::Updater,
 };
@@ -17,58 +17,164 @@ use view::{Buffer, View};
 
 pub struct TerminalEditor {
     tab_manager: TabManager,
+    /// The view always mirrors tab_manager.current_tab().
+    /// Call sync_tab_from_view() BEFORE switching tabs.
+    /// Call sync_view_from_tab() AFTER switching tabs.
     view: View,
     caret: Caret,
     shortcuts: Shortcuts,
     quit_program: bool,
-    pub start_on_tab_zero: bool,
 }
 
 impl TerminalEditor {
-    pub fn new(buffer: Buffer) -> Self {
-        Self {
-            tab_manager: TabManager::new(buffer.clone(), None, None),
-            view: View::new(buffer),
-            caret: Caret::new(),
-            shortcuts: Shortcuts::new(),
-            quit_program: false,
-            start_on_tab_zero: true,
-        }
-    }
-
-    pub fn new_with_file(path: &str) -> Result<Self, std::io::Error> {
-        let mut tab_manager = TabManager::new(Buffer::default(), None, None);
-        tab_manager.open_file_in_new_tab(path)?;
-
-        let tab = tab_manager.current_tab();
-        let view = View::new(tab.buffer.clone());
-
-        Ok(Self {
+    /// User ran `quick` — restore last session or open a blank editor.
+    pub fn open_fresh() -> Self {
+        let tab_manager = TabManager::restore_or_blank();
+        let view = View::new(tab_manager.current_tab().buffer.clone());
+        let mut editor = Self {
             tab_manager,
             view,
             caret: Caret::new(),
             shortcuts: Shortcuts::new(),
             quit_program: false,
-            start_on_tab_zero: false,
-        })
+        };
+        editor.sync_view_from_tab();
+        editor
     }
-    
-    pub fn open_file_in_new_tab(&mut self) -> Result<(), std::io::Error> {
-        self.sync_tab_to_view();
-        self.tab_manager.new_tab();
-        self.sync_view_to_tab();
-        self.caret.move_to(caret::Position::default())?;
-        self.view.render(&mut self.caret)?;
-        Ok(())
+
+    /// User ran `quick somefile.txt` — open that file as tab 1.
+    pub fn open_file(path: &str) -> Result<Self, std::io::Error> {
+        let tab_manager = TabManager::with_file(path)?;
+        let view = View::new(tab_manager.current_tab().buffer.clone());
+        let mut editor = Self {
+            tab_manager,
+            view,
+            caret: Caret::new(),
+            shortcuts: Shortcuts::new(),
+            quit_program: false,
+        };
+        editor.sync_view_from_tab();
+        Ok(editor)
     }
-    
+
+    /// Compatibility shim — prefer open_fresh() or open_file().
+    pub fn new(buffer: Buffer) -> Self {
+        let tab_manager = TabManager::new(buffer.clone(), None, None);
+        let view = View::new(tab_manager.current_tab().buffer.clone());
+        let mut editor = Self {
+            tab_manager,
+            view,
+            caret: Caret::new(),
+            shortcuts: Shortcuts::new(),
+            quit_program: false,
+        };
+        editor.sync_view_from_tab();
+        editor
+    }
+
     pub fn set_filename_and_filetype(&mut self, filename: Option<String>, filetype: Option<String>) {
         self.tab_manager.current_tab_mut().filename = filename.clone();
+        self.tab_manager.current_tab_mut().filetype = filetype.clone();
         self.view.set_filename_and_filetype(filename, filetype);
     }
-    
+
+    // -----------------------------------------------------------------------
+    // Tab sync — the ONLY place that copies state between view/caret and tab
+    // -----------------------------------------------------------------------
+
+    /// Save live view/caret state INTO the current tab (call BEFORE switching).
+    fn sync_tab_from_view(&mut self) {
+        let tab = self.tab_manager.current_tab_mut();
+        tab.buffer = self.view.buffer.clone();
+        tab.scroll_offset = self.view.scroll_offset;
+        tab.cursor_pos = self.caret.get_position();
+    }
+
+    /// Load current tab state OUT TO the view (call AFTER switching).
+    fn sync_view_from_tab(&mut self) {
+        let tab = self.tab_manager.current_tab();
+        self.view.buffer = tab.buffer.clone();
+        self.view.scroll_offset = tab.scroll_offset;
+        self.view.filename = tab.filename.clone();
+        self.view.filetype = tab.filetype.clone();
+        self.view.selection = None;
+        self.view.search_state = None;
+        self.view.clear_prompt();
+        self.view.needs_redraw = true;
+    }
+
+    /// Switch to a tab by 1-based number.
+    fn switch_tab(&mut self, tab_number: usize) -> Result<(), std::io::Error> {
+        self.sync_tab_from_view();
+        self.tab_manager.switch_to_tab(tab_number)?;
+        let cursor_pos = self.tab_manager.current_tab().cursor_pos;
+        self.sync_view_from_tab();
+        self.view.render(&self.caret)?;
+        self.caret.move_to(cursor_pos)?;
+        Terminal::execute()?;
+        Ok(())
+    }
+
+    /// Open a new blank tab and switch to it.
+    fn new_tab(&mut self) -> Result<(), std::io::Error> {
+        self.sync_tab_from_view();
+        self.tab_manager.new_tab();
+        self.sync_view_from_tab();
+        self.caret.move_to(caret::Position::default())?;
+        self.view.render(&self.caret)?;
+        Terminal::execute()?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Mouse scroll
+    // -----------------------------------------------------------------------
+
+    /// Scroll the view up by `lines` without moving the caret visually.
+    fn scroll_up(&mut self, lines: usize) -> Result<(), std::io::Error> {
+        if self.view.scroll_offset == 0 {
+            return Ok(());
+        }
+        self.view.scroll_offset = self.view.scroll_offset.saturating_sub(lines);
+        self.view.needs_redraw = true;
+        self.view.render_if_needed(
+            &self.caret,
+            self.tab_manager.current_tab().has_unsaved_changes,
+        )?;
+        // Keep caret clamped to the visible area
+        self.caret.clamp_to_bounds()?;
+        Terminal::execute()?;
+        Ok(())
+    }
+
+    /// Scroll the view down by `lines` without moving the caret visually.
+    fn scroll_down(&mut self, lines: usize) -> Result<(), std::io::Error> {
+        let size = Terminal::get_size()?;
+        let visible_rows = size.height.saturating_sub(caret::Position::HEADER + 1) as usize;
+        let max_scroll = self
+            .view
+            .buffer
+            .lines
+            .len()
+            .saturating_sub(visible_rows);
+
+        if self.view.scroll_offset >= max_scroll {
+            return Ok(());
+        }
+        self.view.scroll_offset = (self.view.scroll_offset + lines).min(max_scroll);
+        self.view.needs_redraw = true;
+        self.view.render_if_needed(
+            &self.caret,
+            self.tab_manager.current_tab().has_unsaved_changes,
+        )?;
+        self.caret.clamp_to_bounds()?;
+        Terminal::execute()?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+
     fn check_and_install_update(&mut self) -> Result<(), std::io::Error> {
-        // Show checking message
         self.view.show_prompt(
             crate::tui::view::PromptKind::SearchInfo,
             "Checking for updates...".to_string(),
@@ -76,10 +182,9 @@ impl TerminalEditor {
         self.view.needs_redraw = true;
         self.view.render_if_needed(&self.caret, false)?;
         Terminal::execute()?;
-        
-        // Check for updates in a separate thread to avoid blocking
+
         let updater = Updater::new();
-        
+
         let update_info = match updater.check_for_updates() {
             Ok(info) => info,
             Err(e) => {
@@ -96,7 +201,7 @@ impl TerminalEditor {
                 return Ok(());
             }
         };
-        
+
         if !update_info.update_available {
             self.view.show_prompt(
                 crate::tui::view::PromptKind::SearchInfo,
@@ -110,103 +215,84 @@ impl TerminalEditor {
             Terminal::execute()?;
             return Ok(());
         }
-        
-        // Update available - show release notes and prompt
+
         let message = format!(
             "Update available: v{} → v{} | Press Y to install, N to cancel",
-            update_info.current_version,
-            update_info.latest_version
+            update_info.current_version, update_info.latest_version
         );
-        
-        self.view.show_prompt(
-            crate::tui::view::PromptKind::SearchInfo,
-            message,
-        );
+        self.view.show_prompt(crate::tui::view::PromptKind::SearchInfo, message);
         self.view.needs_redraw = true;
         self.view.render_if_needed(&self.caret, false)?;
         Terminal::execute()?;
-        
-        // Wait for user confirmation
+
         loop {
             match read()? {
-                Event::Key(event) if event.kind == KeyEventKind::Press => {
-                    match event.code {
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            // User confirmed - perform update
-                            self.view.show_prompt(
-                                crate::tui::view::PromptKind::SearchInfo,
-                                "Downloading update...".to_string(),
-                            );
-                            self.view.render_if_needed(&self.caret, false)?;
-                            Terminal::execute()?;
-                            
-                            match updater.perform_update() {
-                                Ok(_) => {
-                                    self.view.show_prompt(
-                                        crate::tui::view::PromptKind::SearchInfo,
-                                        "Update successful! Restart the application to use the new version.".to_string(),
-                                    );
-                                    self.view.render_if_needed(&self.caret, false)?;
-                                    Terminal::execute()?;
-                                    std::thread::sleep(std::time::Duration::from_secs(3));
-                                    
-                                    // Optionally quit after update
-                                    self.quit_program = true;
-                                }
-                                Err(e) => {
-                                    self.view.show_prompt(
-                                        crate::tui::view::PromptKind::Error,
-                                        format!("Update failed: {}", e),
-                                    );
-                                    self.view.render_if_needed(&self.caret, false)?;
-                                    Terminal::execute()?;
-                                    std::thread::sleep(std::time::Duration::from_secs(3));
-                                }
+                Event::Key(event) if event.kind == KeyEventKind::Press => match event.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        self.view.show_prompt(
+                            crate::tui::view::PromptKind::SearchInfo,
+                            "Downloading update...".to_string(),
+                        );
+                        self.view.render_if_needed(&self.caret, false)?;
+                        Terminal::execute()?;
+
+                        match updater.perform_update() {
+                            Ok(_) => {
+                                self.view.show_prompt(
+                                    crate::tui::view::PromptKind::SearchInfo,
+                                    "Update successful! Restart to use the new version.".to_string(),
+                                );
+                                self.view.render_if_needed(&self.caret, false)?;
+                                Terminal::execute()?;
+                                std::thread::sleep(std::time::Duration::from_secs(3));
+                                self.quit_program = true;
                             }
-                            break;
+                            Err(e) => {
+                                self.view.show_prompt(
+                                    crate::tui::view::PromptKind::Error,
+                                    format!("Update failed: {}", e),
+                                );
+                                self.view.render_if_needed(&self.caret, false)?;
+                                Terminal::execute()?;
+                                std::thread::sleep(std::time::Duration::from_secs(3));
+                            }
                         }
-                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                            // User cancelled
-                            self.view.clear_prompt();
-                            self.view.render_if_needed(&self.caret, false)?;
-                            Terminal::execute()?;
-                            break;
-                        }
-                        _ => {}
+                        break;
                     }
-                }
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                        self.view.clear_prompt();
+                        self.view.render_if_needed(&self.caret, false)?;
+                        Terminal::execute()?;
+                        break;
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
-        
+
         self.view.clear_prompt();
         self.view.render_if_needed(&self.caret, false)?;
         Terminal::execute()?;
-        
         Ok(())
     }
-
 
     pub fn run(&mut self) {
         if let Err(error) = Terminal::initialize(&mut self.view, &mut self.caret) {
             eprintln!("Terminal Initialisation Failed: {:?}", error);
         }
 
-        // Create a new tab at start if quick started without a path
-        if self.start_on_tab_zero && self.tab_manager.tabs.is_empty() {
-            let _ = self.open_file_in_new_tab();
-        }
-        
-        self.sync_view_to_tab();
-        self.caret
-            .move_to(self.tab_manager.current_tab().cursor_pos)
-            .ok();
+        let cursor_pos = self.tab_manager.current_tab().cursor_pos;
+        self.caret.move_to(cursor_pos).ok();
+        self.view.render(&self.caret).ok();
 
         match self.main_loop() {
             Ok(_) => {}
             Err(e) => {
-                self.view
-                    .show_prompt(crate::tui::view::PromptKind::Error, format!("Error: {}", e));
+                self.view.show_prompt(
+                    crate::tui::view::PromptKind::Error,
+                    format!("Error: {}", e),
+                );
                 let _ = self.view.render_if_needed(
                     &self.caret,
                     self.tab_manager.current_tab().has_unsaved_changes,
@@ -220,24 +306,9 @@ impl TerminalEditor {
         }
     }
 
-    fn sync_view_to_tab(&mut self) {
-        let tab = self.tab_manager.current_tab();
-        self.view.buffer = tab.buffer.clone();
-        self.view.scroll_offset = tab.scroll_offset;
-        self.view.filename = tab.filename.clone();
-        self.view.filetype = tab.filetype.clone();
-        self.view.needs_redraw = true;
-    }
-
-    fn sync_tab_to_view(&mut self) {
-        let tab = self.tab_manager.current_tab_mut();
-        tab.buffer = self.view.buffer.clone();
-        tab.scroll_offset = self.view.scroll_offset;
-        tab.cursor_pos = self.caret.get_position();
-    }
-
     fn main_loop(&mut self) -> Result<(), std::io::Error> {
         loop {
+            // Auto-clear timed prompts
             if let Some(since) = self.view.prompt_since {
                 if since.elapsed() >= std::time::Duration::from_secs(2) {
                     self.view.clear_prompt();
@@ -252,6 +323,7 @@ impl TerminalEditor {
             match read()? {
                 Event::Key(event) => {
                     if event.kind == KeyEventKind::Press {
+                        // Search navigation intercept
                         if self.view.is_search_active() {
                             match event.code {
                                 KeyCode::Down => {
@@ -266,7 +338,7 @@ impl TerminalEditor {
                                 }
                                 KeyCode::Esc => {
                                     self.view.clear_search();
-                                    self.view.render(&mut self.caret)?;
+                                    self.view.render(&self.caret)?;
                                     Terminal::execute()?;
                                     continue;
                                 }
@@ -278,14 +350,7 @@ impl TerminalEditor {
 
                         if let Some(action) = self.shortcuts.resolve(&event) {
                             match action {
-                                Action::SwitchTab(tab_num) => {
-                                    self.sync_tab_to_view();
-                                    self.tab_manager.switch_to_tab(tab_num)?;
-                                    self.sync_view_to_tab();
-                                    self.caret
-                                        .move_to(self.tab_manager.current_tab().cursor_pos)?;
-                                    self.view.render(&mut self.caret)?;
-                                }
+                                Action::SwitchTab(tab_num) => self.switch_tab(tab_num)?,
 
                                 Action::Undo => {
                                     if let Some(operation) =
@@ -322,58 +387,53 @@ impl TerminalEditor {
                                 }
 
                                 Action::Save => self.save_file()?,
-                                
-                                Action::CheckUpdate => {
-                                    self.check_and_install_update()?;
-                                }
-
-                                Action::New => {
-                                    self.sync_tab_to_view();
-                                    self.tab_manager.new_tab();
-                                    self.sync_view_to_tab();
-                                    self.caret.move_to(caret::Position::default())?;
-                                    self.view.render(&mut self.caret)?;
-                                }
-
+                                Action::CheckUpdate => self.check_and_install_update()?,
+                                Action::New => self.new_tab()?,
                                 Action::Search => self.view.search(&mut self.caret)?,
+
                                 Action::Copy => {
-                                     if let Err(e) = self.view.copy_selection() {
-                                         self.view.show_prompt(crate::tui::view::PromptKind::Error, e.to_string());
-                                     } else {
-                                         self.view.show_prompt(crate::tui::view::PromptKind::Error, "Copied!".into());
-                                     }
-                                 }
-                                 Action::Cut => {
-                                     match self.view.cut_selection(&mut self.caret) {
-                                         Ok(Some(op)) => {
-                                
-                                             let tab = self.tab_manager.current_tab_mut();
-                                
-                                             tab.edit_history.push(op);
-                                
-                                             tab.has_unsaved_changes = true;
-                                         }
-                                
-                                         Err(e) => self.view.show_prompt(crate::tui::view::PromptKind::Error, e.to_string()),
-                                         _ => {}
-                                     }
-                                 }
-                                 Action::Paste => {
-                                     match self.view.paste_from_clipboard(&mut self.caret) {
-                                
-                                         Ok(ops) => {
-                                
-                                             let tab = self.tab_manager.current_tab_mut();
-                                
-                                             if let Some(op) = ops {
-                                                 tab.edit_history.push(op);
-                                                 tab.has_unsaved_changes = true;
-                                             }
-                                         }
-                                         Err(e) => self.view.show_prompt(crate::tui::view::PromptKind::Error, e.to_string()),
-                                     }
-                                 }
-                                        
+                                    if let Err(e) = self.view.copy_selection() {
+                                        self.view.show_prompt(
+                                            crate::tui::view::PromptKind::Error,
+                                            e.to_string(),
+                                        );
+                                    } else {
+                                        self.view.show_prompt(
+                                            crate::tui::view::PromptKind::SearchInfo,
+                                            "Copied!".into(),
+                                        );
+                                    }
+                                }
+
+                                Action::Cut => {
+                                    match self.view.cut_selection(&mut self.caret) {
+                                        Ok(Some(op)) => {
+                                            let tab = self.tab_manager.current_tab_mut();
+                                            tab.edit_history.push(op);
+                                            tab.has_unsaved_changes = true;
+                                        }
+                                        Err(e) => self.view.show_prompt(
+                                            crate::tui::view::PromptKind::Error,
+                                            e.to_string(),
+                                        ),
+                                        _ => {}
+                                    }
+                                }
+
+                                Action::Paste => {
+                                    match self.view.paste_from_clipboard(&mut self.caret) {
+                                        Ok(Some(op)) => {
+                                            let tab = self.tab_manager.current_tab_mut();
+                                            tab.edit_history.push(op);
+                                            tab.has_unsaved_changes = true;
+                                        }
+                                        Err(e) => self.view.show_prompt(
+                                            crate::tui::view::PromptKind::Error,
+                                            e.to_string(),
+                                        ),
+                                        _ => {}
+                                    }
+                                }
 
                                 Action::Left => self.view.move_left(&mut self.caret)?,
                                 Action::Right => self.view.move_right(&mut self.caret)?,
@@ -405,9 +465,9 @@ impl TerminalEditor {
                                 Action::SelectMaxLeft => {
                                     self.view.move_with_selection("max_left", &mut self.caret)?
                                 }
-                                Action::SelectMaxRight => self
-                                    .view
-                                    .move_with_selection("max_right", &mut self.caret)?,
+                                Action::SelectMaxRight => {
+                                    self.view.move_with_selection("max_right", &mut self.caret)?
+                                }
                                 Action::SelectAll => self.view.select_all(&mut self.caret)?,
 
                                 Action::NextLine => {
@@ -436,7 +496,7 @@ impl TerminalEditor {
 
                                 Action::ToggleCtrlShortcuts => {
                                     self.view.toggle_ctrl_shortcuts();
-                                    self.view.render(&mut self.caret)?;
+                                    self.view.render(&self.caret)?;
                                 }
 
                                 Action::Quit => {
@@ -455,7 +515,8 @@ impl TerminalEditor {
                                                     if ev.kind == KeyEventKind::Press =>
                                                 {
                                                     match ev.code {
-                                                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                                        KeyCode::Char('y')
+                                                        | KeyCode::Char('Y') => {
                                                             self.quit_program = true;
                                                             break;
                                                         }
@@ -481,11 +542,9 @@ impl TerminalEditor {
                                     }
                                 }
 
-                                Action::Print => {
-                                    // Handle both Tab and regular characters
-                                    match event.code {
-                                        KeyCode::Tab => {
-                                            // Insert 4 spaces for tab
+                                Action::Print => match event.code {
+                                    KeyCode::Tab => {
+                                        for _ in 0..4 {
                                             if let Some(op) =
                                                 self.view.type_character(' ', &mut self.caret)?
                                             {
@@ -494,51 +553,26 @@ impl TerminalEditor {
                                                     .edit_history
                                                     .push(op);
                                             }
-                                            if let Some(op) =
-                                                self.view.type_character(' ', &mut self.caret)?
-                                            {
-                                                self.tab_manager
-                                                    .current_tab_mut()
-                                                    .edit_history
-                                                    .push(op);
-                                            }
-                                            if let Some(op) =
-                                                self.view.type_character(' ', &mut self.caret)?
-                                            {
-                                                self.tab_manager
-                                                    .current_tab_mut()
-                                                    .edit_history
-                                                    .push(op);
-                                            }
-                                            if let Some(op) =
-                                                self.view.type_character(' ', &mut self.caret)?
-                                            {
-                                                self.tab_manager
-                                                    .current_tab_mut()
-                                                    .edit_history
-                                                    .push(op);
-                                            }
+                                        }
+                                        self.tab_manager.current_tab_mut().has_unsaved_changes =
+                                            true;
+                                    }
+                                    KeyCode::Char(character) => {
+                                        if let Some(op) =
+                                            self.view.type_character(character, &mut self.caret)?
+                                        {
+                                            self.tab_manager
+                                                .current_tab_mut()
+                                                .edit_history
+                                                .push(op);
                                             self.tab_manager
                                                 .current_tab_mut()
                                                 .has_unsaved_changes = true;
                                         }
-                                        KeyCode::Char(character) => {
-                                            if let Some(op) = self
-                                                .view
-                                                .type_character(character, &mut self.caret)?
-                                            {
-                                                self.tab_manager
-                                                    .current_tab_mut()
-                                                    .edit_history
-                                                    .push(op);
-                                                self.tab_manager
-                                                    .current_tab_mut()
-                                                    .has_unsaved_changes = true;
-                                            }
-                                        }
-                                        _ => {}
                                     }
-                                }
+                                    _ => {}
+                                },
+
                                 _ => {}
                             }
 
@@ -550,33 +584,44 @@ impl TerminalEditor {
                         }
                     }
                 }
+
                 Event::Mouse(mouse_event) => {
-                    if let Some(action) = self.shortcuts.resolve_mouse(&mouse_event) {
-                        match action {
-                            Action::MouseDown(x, y) => {
-                                self.view.handle_mouse_down(x, y, &mut self.caret)?
+                    use crossterm::event::MouseEventKind;
+                    match mouse_event.kind {
+                        // Scroll wheel — 3 lines per tick, feels natural
+                        MouseEventKind::ScrollUp => self.scroll_up(3)?,
+                        MouseEventKind::ScrollDown => self.scroll_down(3)?,
+                        _ => {
+                            if let Some(action) = self.shortcuts.resolve_mouse(&mouse_event) {
+                                match action {
+                                    Action::MouseDown(x, y) => {
+                                        self.view.handle_mouse_down(x, y, &mut self.caret)?
+                                    }
+                                    Action::MouseDrag(x, y) => {
+                                        self.view.handle_mouse_drag(x, y, &mut self.caret)?
+                                    }
+                                    Action::MouseUp(x, y) => {
+                                        self.view.handle_mouse_up(x, y, &mut self.caret)?
+                                    }
+                                    Action::MouseDoubleClick(x, y) => {
+                                        self.view.handle_double_click(x, y, &mut self.caret)?
+                                    }
+                                    Action::MouseTripleClick(x, y) => {
+                                        self.view.handle_triple_click(x, y, &mut self.caret)?
+                                    }
+                                    _ => {}
+                                }
+                                Terminal::execute()?;
                             }
-                            Action::MouseDrag(x, y) => {
-                                self.view.handle_mouse_drag(x, y, &mut self.caret)?
-                            }
-                            Action::MouseUp(x, y) => {
-                                self.view.handle_mouse_up(x, y, &mut self.caret)?
-                            }
-                            Action::MouseDoubleClick(x, y) => {
-                                self.view.handle_double_click(x, y, &mut self.caret)?
-                            }
-                            Action::MouseTripleClick(x, y) => {
-                                self.view.handle_triple_click(x, y, &mut self.caret)?
-                            }
-                            _ => {}
                         }
-                        Terminal::execute()?;
                     }
                 }
+
                 Event::Resize(_, _) => self.view.handle_resize(
                     &mut self.caret,
                     self.tab_manager.current_tab().has_unsaved_changes,
                 )?,
+
                 _ => {}
             }
 
@@ -600,19 +645,20 @@ impl TerminalEditor {
                 .iter()
                 .rposition(|line| !line.is_empty())
                 .unwrap_or(0);
-            let content_lines: Vec<String> = self
+            let content = self
                 .view
                 .buffer
                 .lines
                 .iter()
                 .take(last_line + 1)
                 .cloned()
-                .collect();
-            let content = content_lines.join("\n");
+                .collect::<Vec<_>>()
+                .join("\n");
 
             match fs::write(&filepath, content) {
                 Ok(_) => {
                     self.tab_manager.current_tab_mut().has_unsaved_changes = false;
+                    self.sync_tab_from_view();
                     let _ = self.tab_manager.save_session();
                     self.view.needs_redraw = true;
                     self.view.render_if_needed(&self.caret, false)?;
@@ -621,6 +667,7 @@ impl TerminalEditor {
                 Err(e) => return Err(e),
             }
         } else {
+            // Save-as flow
             self.view.show_prompt(
                 crate::tui::view::PromptKind::SaveAs,
                 "Save as: ".to_string(),
@@ -645,31 +692,36 @@ impl TerminalEditor {
                                     if filename.is_empty() {
                                         break;
                                     }
-                                    
-                                    // Canonicalize the path to get absolute path
+
                                     let path_buf = std::fs::canonicalize(&filename)
                                         .unwrap_or_else(|_| {
-                                            // If file doesn't exist yet, build absolute path manually
-                                            let mut current_dir = std::env::current_dir().unwrap_or_default();
-                                            current_dir.push(&filename);
-                                            current_dir
+                                            let mut d =
+                                                std::env::current_dir().unwrap_or_default();
+                                            d.push(&filename);
+                                            d
                                         });
-                                    
+
                                     let full_path = path_buf.to_string_lossy().into_owned();
                                     let display_name = path_buf
                                         .file_name()
-                                        .map(|name| name.to_string_lossy().into_owned())
+                                        .map(|n| n.to_string_lossy().into_owned())
                                         .unwrap_or_else(|| filename.clone());
-                                    
-                                    let raw_ext = path_buf.extension()
-                                        .map(|ext| ext.to_string_lossy().into_owned());
-                                    let friendly_filetype = get_friendly_filetype(raw_ext);
+                                    let friendly_filetype = get_friendly_filetype(
+                                        path_buf
+                                            .extension()
+                                            .map(|e| e.to_string_lossy().into_owned()),
+                                    );
 
-                                    // Store BOTH the display name and the full path
-                                    self.tab_manager.current_tab_mut().filename = Some(display_name.clone());
-                                    self.tab_manager.current_tab_mut().filepath = Some(full_path.clone());
-                                    self.tab_manager.current_tab_mut().filetype = friendly_filetype.clone();
-                                    self.view.set_filename_and_filetype(Some(display_name), friendly_filetype);
+                                    self.tab_manager.current_tab_mut().filename =
+                                        Some(display_name.clone());
+                                    self.tab_manager.current_tab_mut().filepath =
+                                        Some(full_path.clone());
+                                    self.tab_manager.current_tab_mut().filetype =
+                                        friendly_filetype.clone();
+                                    self.view.set_filename_and_filetype(
+                                        Some(display_name),
+                                        friendly_filetype,
+                                    );
 
                                     let last_line = self
                                         .view
@@ -678,22 +730,22 @@ impl TerminalEditor {
                                         .iter()
                                         .rposition(|line| !line.is_empty())
                                         .unwrap_or(0);
-                                    let content_lines: Vec<String> = self
+                                    let content = self
                                         .view
                                         .buffer
                                         .lines
                                         .iter()
                                         .take(last_line + 1)
                                         .cloned()
-                                        .collect();
-                                    let content = content_lines.join("\n");
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
 
-                                    // Save to the FULL PATH
                                     match fs::write(&full_path, content) {
                                         Ok(_) => {
                                             self.tab_manager
                                                 .current_tab_mut()
                                                 .has_unsaved_changes = false;
+                                            self.sync_tab_from_view();
                                             let _ = self.tab_manager.save_session();
                                             self.view.needs_redraw = true;
                                             self.view.render_if_needed(&self.caret, false)?;
