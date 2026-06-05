@@ -5,229 +5,304 @@ mod gui;
 use std::env;
 
 fn main() {
-    
     let args: Vec<String> = env::args().collect();
-    let home = env::var("HOME").unwrap_or_default();
-    let expected_path = format!("{}/.local/bin/quick", home);
-    
-    // Get current executable path
-    let current_exe = env::current_exe().expect("Failed to get current path");
 
-    // Check for uninstall flag first
-    if args.iter().any(|arg| arg == "--uninstall") {
+    // Flags parsed up front
+    let want_uninstall  = args.iter().any(|a| a == "--uninstall");
+    let want_shortcuts  = args.iter().any(|a| a == "--shortcuts");
+    let want_gui        = args.iter().any(|a| a == "--gui");
+
+    if want_uninstall {
         uninstall();
         return;
     }
 
-    // SELF-INSTALL LOGIC
-    // If we are NOT running from ~/.local/bin and no specific flags are passed
-    if !current_exe.to_string_lossy().contains(&expected_path) && args.len() == 1 {
-        println!(" Quick Notepad: First-time setup detected...");
-        install();
-        
-        // After installing, launch the GUI
-        gui::run(None);
-        return;
-    }
-    
-    // Check if GUI mode is requested
-    let gui_mode = args.iter().any(|arg| arg == "--gui");
-    
-    // Check for shortcuts flag (works in both modes)
-    if args.iter().any(|arg| arg == "--shortcuts") {
+    if want_shortcuts {
         core::shortcuts::Shortcuts::print_all();
         return;
     }
-    
-    if gui_mode {
-        // Launch GUI mode
-        let file_path = args.iter()
-            .position(|arg| arg != "--gui" && arg != &args[0])
-            .map(|i| args[i].clone());
-        
-        gui::run(file_path);
-    } else {
-        // Launch TUI mode
-        let mut editor = if args.len() > 1 {
-            let raw_path = &args[1];
-            let path_buf = std::fs::canonicalize(raw_path)
-                .unwrap_or_else(|_| std::path::PathBuf::from(raw_path));
-            let full_path = path_buf.to_string_lossy().into_owned();
-    
-            match tui::TerminalEditor::open_file(&full_path) {
-                Ok(ed) => ed,
-                Err(e) => {
-                    eprintln!("Error opening file {}: {}", full_path, e);
-                    tui::TerminalEditor::open_fresh()
-                }
-            }
-        } else {
-            tui::TerminalEditor::open_fresh()
-        };
-    
-        editor.run();
+
+    // Self-install guard
+    //
+    // Only fire when ALL of the following are true:
+    //   1. No file/flag arguments (bare `quick` invocation)
+    //   2. Not running as root / via sudo (those sessions have no user display)
+    //   3. Not already running from the canonical install path
+    //   4. Not running from a system prefix (/usr/, /opt/, …)
+    //   5. The canonical install path does not yet exist on disk
+    if args.len() == 1 && !want_gui && !is_elevated() {
+        if let Some(true) = should_self_install() {
+            println!(" Quick Notepad: First-time setup detected...");
+            install();
+            gui::run(None);
+            return;
+        }
     }
 
-    
-    fn install() {
-        use std::fs;
-        use std::env;
-        use std::path::Path;
-    
-        let home = env::var("HOME").expect("Could not find HOME directory");
-        let bin_dir = format!("{}/.local/bin", home);
-        let target_bin_path = format!("{}/quick", bin_dir);
-        let icon_dir = format!("{}/.local/share/icons/hicolor/512x512/apps", home);
-        let desktop_dir = format!("{}/.local/share/applications", home);
-    
-        // Move the binary to ~/.local/bin
-        let current_exe = env::current_exe().expect("Failed to get current path");
-        let _ = fs::create_dir_all(&bin_dir);
-    
-        // only copy if we aren't already the target
-        if current_exe != Path::new(&target_bin_path) {
-            if let Err(e) = fs::copy(&current_exe, &target_bin_path) {
-                eprintln!("❌ Failed to move binary to bin: {}", e);
-            } else {
-                // Set executable permissions on the new copy
+    // launch
+    if want_gui {
+        // First non-flag argument after argv[0] is the optional file path
+        let file_path = args.iter()
+            .skip(1)
+            .find(|a| !a.starts_with("--"))
+            .cloned();
+        gui::run(file_path);
+    } else {
+        // TUI mode
+        let file_arg = args.iter()
+            .skip(1)
+            .find(|a| !a.starts_with("--"))
+            .map(String::as_str);
+
+        let mut editor = match file_arg {
+            Some(raw_path) => {
+                // Resolve the path — but do NOT use canonicalize() if the file
+                // might not exist yet (e.g. `quick newfile.txt`)
+                let path_buf = std::fs::canonicalize(raw_path)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(raw_path));
+                let full_path = path_buf.to_string_lossy().into_owned();
+
+                match tui::TerminalEditor::open_file(&full_path) {
+                    Ok(ed) => ed,
+                    Err(e) => {
+                        eprintln!("Error opening file {}: {}", full_path, e);
+                        tui::TerminalEditor::open_fresh()
+                    }
+                }
+            }
+            None => tui::TerminalEditor::open_fresh(),
+        };
+
+        editor.run();
+    }
+}
+
+// Detect elevated / root execution without external crates
+//
+// Checks (in order of reliability):
+//   1. $SUDO_USER is set  → we were launched via `sudo`
+//   2. $USER == "root"    → running as the root account directly
+//   3. $HOME == "/root"   → home directory is root's home
+//   4. $EUID == "0"       → effective UID env var (set by some shells)
+fn is_elevated() -> bool {
+    // `sudo quick` always sets SUDO_USER to the original user
+    if env::var("SUDO_USER").is_ok() {
+        return true;
+    }
+    if env::var("USER").as_deref() == Ok("root") {
+        return true;
+    }
+    if env::var("HOME").as_deref() == Ok("/root") {
+        return true;
+    }
+    if env::var("EUID").as_deref() == Ok("0") {
+        return true;
+    }
+    false
+}
+
+// Decide whether to self-install.
+//   Some(true)  → should install
+//   Some(false) → already installed / should not install
+//   None        → can't determine, skip install
+fn should_self_install() -> Option<bool> {
+    let home = env::var("HOME").ok()?;
+    let canonical = format!("{}/.local/bin/quick", home);
+
+    let current_exe = env::current_exe().ok()?;
+    let current_str = current_exe.to_string_lossy();
+
+    // Already running from the install path
+    if current_str.as_ref() == canonical {
+        return Some(false);
+    }
+
+    // Running from a system-wide location (package manager, live medium, etc.)
+    let system_prefixes = ["/usr/", "/opt/", "/bin/", "/sbin/", "/snap/",
+                           "/run/", "/mnt/", "/media/", "/live/"];
+    if system_prefixes.iter().any(|p| current_str.starts_with(p)) {
+        return Some(false);
+    }
+
+    // Canonical path already exists — already installed, no need to reinstall
+    if std::path::Path::new(&canonical).exists() {
+        return Some(false);
+    }
+
+    Some(true)
+}
+
+fn install() {
+    use std::fs;
+    use std::path::Path;
+
+    let home = match env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => {
+            eprintln!("❌ Cannot install: $HOME is not set.");
+            return;
+        }
+    };
+
+    let bin_dir      = format!("{}/.local/bin", home);
+    let target_path  = format!("{}/quick", bin_dir);
+    let icon_dir     = format!("{}/.local/share/icons/hicolor/512x512/apps", home);
+    let desktop_dir  = format!("{}/.local/share/applications", home);
+
+    let current_exe = match env::current_exe() {
+        Ok(p) => p,
+        Err(e) => { eprintln!("❌ Cannot determine executable path: {}", e); return; }
+    };
+
+    let _ = fs::create_dir_all(&bin_dir);
+
+    if current_exe != Path::new(&target_path) {
+        match fs::copy(&current_exe, &target_path) {
+            Ok(_) => {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = fs::set_permissions(&target_bin_path, fs::Permissions::from_mode(0o755));
+                    let _ = fs::set_permissions(&target_path,
+                        fs::Permissions::from_mode(0o755));
                 }
-                println!(" Binary installed to ~/.local/bin");
+                println!("✓ Binary installed to {}", target_path);
             }
+            Err(e) => eprintln!("❌ Failed to install binary: {}", e),
         }
-    
-        // Extract Baked-in Icon
-        let icon_bytes = include_bytes!("../assets/icon.png");
-        let _ = fs::create_dir_all(&icon_dir);
-        let icon_path = format!("{}/quick_notepad.png", icon_dir);
-        let _ = fs::write(&icon_path, icon_bytes);
-    
-        // Create Desktop Entry
-        let _ = fs::create_dir_all(&desktop_dir);
-        let desktop_entry = format!(
-            "[Desktop Entry]\n\
-            Name=Quick Notepad\n\
-            Comment=Fast TUI/GUI Text Editor\n\
-            Exec={bin} --gui %F\n\
-            Icon=quick_notepad\n\
-            Type=Application\n\
-            Categories=Utility;TextEditor;\n\
-            Terminal=false\n\
-            MimeType=text/plain;\n",
-            bin = target_bin_path
-        );
-    
-        let _ = fs::write(format!("{}/quick-notepad.desktop", desktop_dir), desktop_entry);
-        
-        println!(" Desktop integration complete! You can now find Quick Notepad in your menu.");
     }
 
-    fn uninstall() {
-        use std::fs;
-        use std::env;
-        use std::io::{self, Write};
+    // Add ~/.local/bin to PATH in shell rc files if it isn't already there
+    add_to_path_if_needed(&bin_dir, &home);
 
-        println!("  Quick Notepad Uninstaller");
-        println!("\n  This action cannot be undone!");
-        
-        print!("\nAre you sure you want to uninstall? (yes/no): ");
-        io::stdout().flush().unwrap();
-        
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        let input = input.trim().to_lowercase();
-        
-        if input != "yes" && input != "y" {
-            println!("Quick Uninstall cancelled.");
-            return;
+    // Icon
+    let icon_bytes = include_bytes!("../assets/icon.png");
+    let _ = fs::create_dir_all(&icon_dir);
+    let _ = fs::write(format!("{}/quick_notepad.png", icon_dir), icon_bytes);
+
+    // Desktop entry
+    let _ = fs::create_dir_all(&desktop_dir);
+    let desktop_entry = format!(
+        "[Desktop Entry]\n\
+        Name=Quick Notepad\n\
+        Comment=Fast TUI/GUI Text Editor\n\
+        Exec={bin} --gui %F\n\
+        Icon=quick_notepad\n\
+        Type=Application\n\
+        Categories=Utility;TextEditor;\n\
+        Terminal=false\n\
+        MimeType=text/plain;\n",
+        bin = target_path
+    );
+    let _ = fs::write(format!("{}/quick-notepad.desktop", desktop_dir), desktop_entry);
+
+    // Attempt to refresh the desktop database (non-fatal if missing)
+    let _ = std::process::Command::new("update-desktop-database")
+        .arg(&desktop_dir)
+        .status();
+
+    println!("✓ Desktop integration complete. You can now find Quick Notepad in your menu.");
+    println!("\nℹ  If 'quick' is not found in a new terminal, run:\n");
+    println!("    source ~/.bashrc   (or ~/.zshrc / ~/.profile)");
+    println!("\n   or open a new terminal session.\n");
+}
+
+fn add_to_path_if_needed(bin_dir: &str, home: &str) {
+    use std::fs;
+    use std::io::Write;
+
+    let export_line = format!("\nexport PATH=\"{}:$PATH\"\n", bin_dir);
+
+    // Shell rc files to check, in preference order
+    let rc_files = [
+        format!("{}/.bashrc", home),
+        format!("{}/.zshrc", home),
+        format!("{}/.profile", home),
+    ];
+
+    let mut added = false;
+    for rc_path in &rc_files {
+        // Read the current content; if the file doesn't exist, treat as empty.
+        let content = fs::read_to_string(rc_path).unwrap_or_default();
+
+        // Skip if the bin_dir is already mentioned in this file
+        if content.contains(bin_dir) {
+            return; // Already configured — nothing to do globally
         }
 
-        let home = match env::var("HOME") {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("Could not find HOME directory");
-                return;
-            }
-        };
-
-        let mut errors = Vec::new();
-        let mut removed_count = 0;
-
-        // Define all paths to remove
-        let paths_to_remove = vec![
-            // Binary
-            (format!("{}/.local/bin/quick", home), "Binary"),
-            // Backup binary (if exists)
-            (format!("{}/.local/bin/quick.old", home), "Binary backup"),
-            // Desktop entry
-            (format!("{}/.local/share/applications/quick-notepad.desktop", home), "Desktop entry"),
-            // Icon
-            (format!("{}/.local/share/icons/hicolor/512x512/apps/quick_notepad.png", home), "Application icon"),
-            // Session data (tabs.json)
-            (format!("{}/.quicknotepad/tabs.json", home), "Session data"),
-        ];
-
-        println!("\n Removing files...");
-        
-        for (path, description) in paths_to_remove {
-            match fs::remove_file(&path) {
-                Ok(_) => {
-                    println!("   Removed: {}", description);
-                    removed_count += 1;
-                }
-                Err(e) => {
-                    if e.kind() != std::io::ErrorKind::NotFound {
-                        errors.push(format!("  ⚠️  Failed to remove {}: {}", description, e));
-                    }
-                    // Silently ignore if file doesn't exist
-                }
-            }
-        }
-
-        // Try to remove the .quicknotepad directory
-        let config_dir = format!("{}/.quicknotepad", home);
-        match fs::remove_dir(&config_dir) {
-            Ok(_) => {
-                println!("   Removed: Configuration directory");
-                removed_count += 1;
-            }
-            Err(e) => {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    // Only warn if directory exists but couldn't be removed (might have other files)
-                    if e.kind() == std::io::ErrorKind::Other {
-                        println!("  ℹ️  Note: Configuration directory not removed (may contain other files)");
-                    } else {
-                        errors.push(format!("  ⚠️  Failed to remove configuration directory: {}", e));
+        // Append to ~/.bashrc (primary) and note for the user
+        if !added {
+            match fs::OpenOptions::new().append(true).create(true).open(rc_path) {
+                Ok(mut f) => {
+                    if f.write_all(export_line.as_bytes()).is_ok() {
+                        println!("✓ Added {} to PATH in {}", bin_dir, rc_path);
+                        added = true;
                     }
                 }
+                Err(e) => eprintln!("⚠  Could not update {}: {}", rc_path, e),
             }
         }
-
-        println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        
-        if !errors.is_empty() {
-            println!("\n⚠️  Warnings:");
-            for error in errors {
-                println!("{}", error);
-            }
-        }
-
-        println!("\n   Uninstall complete!");
-        println!("   {} item(s) removed", removed_count);
-        
-        // Update desktop database if available
-        if let Ok(status) = std::process::Command::new("update-desktop-database")
-            .arg(format!("{}/.local/share/applications", home))
-            .status()
-        {
-            if status.success() {
-                println!("   Desktop database updated");
-            }
-        }
-
-        println!("\n   Thank you for using Quick Notepad!");
     }
+}
+
+// Uninstall
+fn uninstall() {
+    use std::fs;
+    use std::io::{self, Write};
+
+    println!("  Quick Notepad Uninstaller");
+    println!("\n  This action cannot be undone!");
+    print!("\nAre you sure you want to uninstall? (yes/no): ");
+    io::stdout().flush().unwrap();
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    if !matches!(input.trim().to_lowercase().as_str(), "yes" | "y") {
+        println!("Uninstall cancelled.");
+        return;
+    }
+
+    let home = match env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => { eprintln!("Could not find HOME directory"); return; }
+    };
+
+    let paths = vec![
+        (format!("{}/.local/bin/quick", home),                                          "Binary"),
+        (format!("{}/.local/bin/quick.old", home),                                      "Binary backup"),
+        (format!("{}/.local/share/applications/quick-notepad.desktop", home),           "Desktop entry"),
+        (format!("{}/.local/share/icons/hicolor/512x512/apps/quick_notepad.png", home), "Icon"),
+        (format!("{}/.quicknotepad/tabs.json", home),                                   "Session data"),
+    ];
+
+    println!("\n Removing files...");
+    let mut removed = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    for (path, desc) in &paths {
+        match fs::remove_file(path) {
+            Ok(_) => { println!("   Removed: {}", desc); removed += 1; }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => errors.push(format!("Failed to remove {}: {}", desc, e)),
+        }
+    }
+
+    let config_dir = format!("{}/.quicknotepad", home);
+    match fs::remove_dir(&config_dir) {
+        Ok(_) => { println!("   Removed: Configuration directory"); removed += 1; }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => println!("  ℹ Configuration directory kept (may contain other files)"),
+    }
+
+    if !errors.is_empty() {
+        println!("\n⚠  Warnings:");
+        for e in &errors { println!("  {}", e); }
+    }
+
+    println!("\n   Uninstall complete! {} item(s) removed.", removed);
+
+    let _ = std::process::Command::new("update-desktop-database")
+        .arg(format!("{}/.local/share/applications", home))
+        .status();
+
+    println!("   Thank you for using Quick Notepad!");
 }

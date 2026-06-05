@@ -61,7 +61,7 @@ impl View {
             prompt: None,
             needs_redraw: true,
             search_state: None,
-            clipboard: arboard::Clipboard::new().ok(),
+            clipboard: try_clipboard(),
         }
     }
 
@@ -401,7 +401,7 @@ impl Default for View {
             prompt: None,
             needs_redraw: true,
             search_state: None,
-            clipboard: arboard::Clipboard::new().ok(),
+            clipboard: try_clipboard(),
         }
     }
 }
@@ -471,4 +471,13 @@ pub mod helpers {
             column: char_pos,
         }
     }
+}
+
+fn try_clipboard() -> Option<arboard::Clipboard> {
+    // catch_unwind requires the closure to be UnwindSafe.
+    // arboard::Clipboard is not marked UnwindSafe, so we use AssertUnwindSafe.
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        arboard::Clipboard::new().ok()
+    }))
+    .unwrap_or(None)
 }

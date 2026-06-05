@@ -17,9 +17,9 @@ use view::{Buffer, View};
 
 pub struct TerminalEditor {
     tab_manager: TabManager,
-    /// The view always mirrors tab_manager.current_tab().
-    /// Call sync_tab_from_view() BEFORE switching tabs.
-    /// Call sync_view_from_tab() AFTER switching tabs.
+    // The view always mirrors tab_manager.current_tab().
+    // Call sync_tab_from_view() BEFORE switching tabs.
+    // Call sync_view_from_tab() AFTER switching tabs.
     view: View,
     caret: Caret,
     shortcuts: Shortcuts,
@@ -27,7 +27,7 @@ pub struct TerminalEditor {
 }
 
 impl TerminalEditor {
-    /// User ran `quick` — restore last session or open a blank editor.
+    // User ran `quick` — restore last session or open a blank editor.
     pub fn open_fresh() -> Self {
         let tab_manager = TabManager::restore_or_blank();
         let view = View::new(tab_manager.current_tab().buffer.clone());
@@ -42,7 +42,7 @@ impl TerminalEditor {
         editor
     }
 
-    /// User ran `quick somefile.txt` — open that file as tab 1.
+    // User ran `quick somefile.txt` — open that file as tab 1.
     pub fn open_file(path: &str) -> Result<Self, std::io::Error> {
         let tab_manager = TabManager::with_file(path)?;
         let view = View::new(tab_manager.current_tab().buffer.clone());
@@ -57,7 +57,7 @@ impl TerminalEditor {
         Ok(editor)
     }
 
-    /// Compatibility shim — prefer open_fresh() or open_file().
+    // Compatibility shim — prefer open_fresh() or open_file().
     pub fn new(buffer: Buffer) -> Self {
         let tab_manager = TabManager::new(buffer.clone(), None, None);
         let view = View::new(tab_manager.current_tab().buffer.clone());
@@ -77,12 +77,8 @@ impl TerminalEditor {
         self.tab_manager.current_tab_mut().filetype = filetype.clone();
         self.view.set_filename_and_filetype(filename, filetype);
     }
-
-    // -----------------------------------------------------------------------
-    // Tab sync — the ONLY place that copies state between view/caret and tab
-    // -----------------------------------------------------------------------
-
-    /// Save live view/caret state INTO the current tab (call BEFORE switching).
+    
+    // Save live view/caret state INTO the current tab (call BEFORE switching).
     fn sync_tab_from_view(&mut self) {
         let tab = self.tab_manager.current_tab_mut();
         tab.buffer = self.view.buffer.clone();
@@ -90,7 +86,7 @@ impl TerminalEditor {
         tab.cursor_pos = self.caret.get_position();
     }
 
-    /// Load current tab state OUT TO the view (call AFTER switching).
+    // Load current tab state OUT TO the view (call AFTER switching).
     fn sync_view_from_tab(&mut self) {
         let tab = self.tab_manager.current_tab();
         self.view.buffer = tab.buffer.clone();
@@ -103,7 +99,7 @@ impl TerminalEditor {
         self.view.needs_redraw = true;
     }
 
-    /// Switch to a tab by 1-based number.
+    // Switch to a tab by 1-based number.
     fn switch_tab(&mut self, tab_number: usize) -> Result<(), std::io::Error> {
         self.sync_tab_from_view();
         self.tab_manager.switch_to_tab(tab_number)?;
@@ -115,7 +111,7 @@ impl TerminalEditor {
         Ok(())
     }
 
-    /// Open a new blank tab and switch to it.
+    // Open a new blank tab and switch to it.
     fn new_tab(&mut self) -> Result<(), std::io::Error> {
         self.sync_tab_from_view();
         self.tab_manager.new_tab();
@@ -125,12 +121,8 @@ impl TerminalEditor {
         Terminal::execute()?;
         Ok(())
     }
-
-    // -----------------------------------------------------------------------
-    // Mouse scroll
-    // -----------------------------------------------------------------------
-
-    /// Scroll the view up by `lines` without moving the caret visually.
+    
+    // Scroll the view UP
     fn scroll_up(&mut self, lines: usize) -> Result<(), std::io::Error> {
         if self.view.scroll_offset == 0 {
             return Ok(());
@@ -147,7 +139,7 @@ impl TerminalEditor {
         Ok(())
     }
 
-    /// Scroll the view down by `lines` without moving the caret visually.
+    // Scroll the view DOWN
     fn scroll_down(&mut self, lines: usize) -> Result<(), std::io::Error> {
         let size = Terminal::get_size()?;
         let visible_rows = size.height.saturating_sub(caret::Position::HEADER + 1) as usize;
@@ -171,8 +163,6 @@ impl TerminalEditor {
         Terminal::execute()?;
         Ok(())
     }
-
-    // -----------------------------------------------------------------------
 
     fn check_and_install_update(&mut self) -> Result<(), std::io::Error> {
         self.view.show_prompt(

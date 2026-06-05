@@ -32,6 +32,12 @@ pub fn cut_selection(view: &mut View, caret: &mut Caret) -> Result<Option<EditOp
     delete_selection(view, caret)
 }
 
+// normalisation for pasteing
+fn normalize_line_endings(text: &str) -> String {
+    // \r\n first, then bare \r — order matters
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 pub fn paste_from_clipboard(view: &mut View, caret: &mut Caret) -> Result<Option<EditOperation>, Error> {
     // Delete selection first if it exists
     if view.selection.is_some() && view.selection.as_ref().unwrap().is_active() {
@@ -41,7 +47,8 @@ pub fn paste_from_clipboard(view: &mut View, caret: &mut Caret) -> Result<Option
     // Get text from clipboard
     if let Ok(mut clipboard) = arboard::Clipboard::new() {
         if let Ok(text) = clipboard.get_text() {
-            return insert_text_at_cursor(view, caret, &text);
+            let normalized = normalize_line_endings(&text);
+            return insert_text_at_cursor(view, caret, &normalized);
         }
     }
     
