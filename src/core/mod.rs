@@ -6,3 +6,4 @@ pub mod tabs;
 pub mod buffer;
 pub mod updater; 
 pub mod syntax;
+pub mod graphemes;

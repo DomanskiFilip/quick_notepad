@@ -1,10 +1,10 @@
 // keyboard logic with edit tracking for undo/redo
 use super::View;
-use super::graphemes::*;
 use crate::tui::{
     terminal::Terminal, 
     caret::{Caret, Position}
 };
+use crate::core::graphemes::*;
 use crate::core::edit_history::{Edit, EditOperation};
 use std::io::Error;
 

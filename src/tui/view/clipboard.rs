@@ -1,9 +1,9 @@
 // clipboard module with EditOperation tracking
 use super::View;
-use super::graphemes::*;
 use crate::tui::caret::{Caret, Position};
 use crate::tui::terminal::Terminal;
 use crate::core::selection::TextPosition;
+use crate::core::graphemes::*;
 use crate::core::edit_history::{Edit, EditOperation};
 use std::io::Error;
 

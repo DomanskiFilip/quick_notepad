@@ -1,7 +1,7 @@
 // render module responsible for all the render logic
 use super::View;
-use super::graphemes::*;
 use unicode_segmentation::UnicodeSegmentation; 
+use crate::core::graphemes::*;
 use crate::core::selection::TextPosition;
 use crate::tui::{
     caret::{Caret, Position},

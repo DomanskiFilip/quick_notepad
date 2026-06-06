@@ -1,11 +1,11 @@
 // selection module responsible for handling selection logic shared between mouse and keyboard
 use super::{View, helpers};
-use super::graphemes::*;
 use crate::tui::{
     terminal::Terminal,
     caret::{Caret, Position},
 };
 use crate::core::selection::{Selection, TextPosition};
+use crate::core::graphemes::*;
 use std::io::Error;
 
 pub fn move_with_selection(view: &mut View, direction: &str, caret: &mut Caret) -> Result<(), Error> {

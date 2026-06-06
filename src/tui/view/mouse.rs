@@ -5,8 +5,8 @@ use super::{
 };
 use crate::tui::caret::{Caret, Position};
 use crate::core::selection::{Selection, TextPosition};
+use crate::core::graphemes::*;
 use std::io::Error;
-use super::graphemes::*;
 
 pub fn handle_down(view: &mut View, screen_x: u16, screen_y: u16, caret: &mut Caret) -> Result<(), Error> {
     let pos = screen_to_text_pos(view, screen_x, screen_y)?;
