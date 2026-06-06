@@ -1,8 +1,8 @@
-// editor.rs responsible for
+// editor.rs responsible for rendering the text editor panel in GUI mode, handling input and selection logic
 use super::state::EditorState;
 use crate::core::graphemes::wrap_text_to_width;
 use crate::core::selection::{Selection, TextPosition};
-use crate::core::syntax::SyntaxHighlighter;
+use crate::gui::syntax::{SyntaxHighlighter, TokenTypeExt};
 use egui::{
     text::{LayoutJob, TextFormat},
     Color32, FontFamily, FontId, Pos2, Rect, Response, Sense, Stroke, Ui,
@@ -48,8 +48,7 @@ fn build_line_galley(
         let token_len = token.text.len(); // byte length
         let token_end = byte_pos + token_len;
 
-        let (r, g, b) = token.token_type.rgb();
-        let syntax_color = Color32::from_rgb(r, g, b);
+        let syntax_color = token.token_type.color();
 
         // Determine overlap with selection
         let sel_s = sel_start_byte.unwrap_or(usize::MAX);

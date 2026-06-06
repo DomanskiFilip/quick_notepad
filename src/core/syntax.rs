@@ -21,18 +21,21 @@ impl TokenType {
     // Return RGB color values for cross-platform compatibility
     pub fn rgb(&self) -> (u8, u8, u8) {
         match self {
-            TokenType::Keyword => (255, 140, 0),      // Deep Orange
-            TokenType::Type => (255, 215, 0),         // Gold (matches theme)
-            TokenType::String => (144, 238, 144),     // Light Green
-            TokenType::Number => (255, 105, 180),     // Hot Pink
-            TokenType::Comment => (128, 128, 128),    // Grey
-            TokenType::Operator => (255, 69, 0),      // Red-Orange
-            TokenType::Punctuation => (200, 200, 200), // Light Grey
-            TokenType::Variable => (255, 255, 255),   // White
-            TokenType::Constant => (255, 165, 0),     // Orange
-            TokenType::Macro => (186, 85, 211),       // Medium Orchid
-            TokenType::Attribute => (147, 112, 219),  // Medium Purple
-            TokenType::Normal => (255, 255, 255),     // White
+            TokenType::Keyword => (255, 140, 0), // Deep Orange (primary)
+            TokenType::Type => (255, 215, 0),    // Gold (primary accent)
+            // Use warm gold/yellow/orange tones for strings and numbers so all
+            // languages share the same palette (no green/pink/purple accents).
+            TokenType::String => (255, 200, 80), // Warm yellow/gold
+            TokenType::Number => (255, 165, 0),  // Orange
+            // Keep comments subdued for readability
+            TokenType::Comment => (128, 128, 128),     // Grey
+            TokenType::Operator => (255, 140, 0),      // Deep Orange (same as keywords)
+            TokenType::Punctuation => (230, 210, 150), // Pale gold / light tan
+            TokenType::Variable => (255, 255, 255),    // White
+            TokenType::Constant => (255, 170, 30),     // Constant / literal accent (warm orange)
+            TokenType::Macro => (255, 140, 60),        // Macro (muted orange)
+            TokenType::Attribute => (255, 190, 80),    // Attribute (light gold)
+            TokenType::Normal => (255, 255, 255),      // White
         }
     }
 }
@@ -53,84 +56,132 @@ impl SyntaxHighlighter {
     }
 
     pub fn highlight_line(&self, line: &str) -> Vec<Token> {
-        match self.file_type.as_deref() {
+        // Normalize file type to lower-case for robust matching; accept both
+        // friendly names ("Python", "JavaScript") and common extensions ("py", "js").
+        if let Some(ref ft_raw) = self.file_type {
+            let ft = ft_raw.trim().to_lowercase();
+            let ft = ft.as_str();
+
             // Rust
-            Some("Rust") => self.highlight_rust(line),
-            
+            if ft == "rust" || ft == "rs" {
+                return self.highlight_rust(line);
+            }
+
             // Python
-            Some("Python") => self.highlight_python(line),
-            
-            // JavaScript/TypeScript
-            Some("JavaScript") | Some("TypeScript") | Some("React JSX") | Some("React TSX") => {
-                self.highlight_javascript(line)
+            if ft == "python" || ft == "py" {
+                return self.highlight_python(line);
             }
-            
+
+            // JavaScript / TypeScript / JSX / TSX
+            if ft == "javascript" || ft == "js" || ft == "mjs" || ft.contains("javascript") {
+                return self.highlight_javascript(line);
+            }
+            if ft == "typescript" || ft == "ts" || ft == "tsx" || ft.contains("typescript") {
+                return self.highlight_javascript(line);
+            }
+            if ft.contains("jsx") || ft.contains("tsx") || ft.contains("react") {
+                return self.highlight_javascript(line);
+            }
+
             // C-family
-            Some("C") | Some("C++") | Some("C#") => self.highlight_c(line),
-            
-            // Java/JVM languages
-            Some("Java") | Some("Kotlin") | Some("Scala") => self.highlight_java(line),
-            
+            if ft == "c" || ft == "c++" || ft == "cpp" || ft == "cc" || ft == "c#" {
+                return self.highlight_c(line);
+            }
+
+            // Java / Kotlin / Scala
+            if ft == "java" || ft == "kotlin" || ft == "scala" {
+                return self.highlight_java(line);
+            }
+
             // Go
-            Some("Go") => self.highlight_go(line),
-            
+            if ft == "go" || ft == "golang" {
+                return self.highlight_go(line);
+            }
+
             // Ruby
-            Some("Ruby") => self.highlight_ruby(line),
-            
+            if ft == "ruby" || ft == "rb" {
+                return self.highlight_ruby(line);
+            }
+
             // PHP
-            Some("PHP") => self.highlight_php(line),
-            
+            if ft == "php" {
+                return self.highlight_php(line);
+            }
+
             // Swift
-            Some("Swift") => self.highlight_swift(line),
-            
+            if ft == "swift" {
+                return self.highlight_swift(line);
+            }
+
             // Shell scripts
-            Some("Shell Script") | Some("Bash Script") | Some("Zsh Script") => {
-                self.highlight_shell(line)
+            if ft.contains("shell") || ft == "sh" || ft == "bash" || ft == "zsh" {
+                return self.highlight_shell(line);
             }
-            
+
             // Web markup
-            Some("HTML") | Some("XML") | Some("Vue") => self.highlight_html(line),
-            Some("CSS") | Some("Sass") => self.highlight_css(line),
-            
-            // Data formats
-            Some("JSON") => self.highlight_json(line),
-            Some("TOML") => self.highlight_toml(line),
-            Some("YAML") => self.highlight_yaml(line),
-            
-            // Configuration files
-            Some("Config") | Some("Config File") | Some("Environment") => {
-                self.highlight_config(line)
+            if ft == "html"
+                || ft == "xml"
+                || ft == "vue"
+                || ft.contains("html")
+                || ft.contains("xml")
+            {
+                return self.highlight_html(line);
             }
-            
+            if ft == "css" || ft == "sass" || ft.contains("css") {
+                return self.highlight_css(line);
+            }
+
+            // Data formats
+            if ft == "json" {
+                return self.highlight_json(line);
+            }
+            if ft == "toml" {
+                return self.highlight_toml(line);
+            }
+            if ft == "yaml" || ft == "yml" {
+                return self.highlight_yaml(line);
+            }
+
+            // Configuration files
+            if ft.contains("config") || ft == "env" || ft == "environment" {
+                return self.highlight_config(line);
+            }
+
             // SQL
-            Some("SQL Query") => self.highlight_sql(line),
-            
+            if ft.contains("sql") || ft == "sql query" {
+                return self.highlight_sql(line);
+            }
+
             // Markdown
-            Some("Markdown") => self.highlight_markdown(line),
-            
+            if ft == "markdown" || ft == "md" {
+                return self.highlight_markdown(line);
+            }
+
             // Other languages that can use generic C-like highlighting
-            Some("Dart") | Some("Zig") | Some("Nim") => self.highlight_c(line),
-            
-            // Default
-            _ => vec![Token {
-                text: line.to_string(),
-                token_type: TokenType::Normal,
-            }],
+            if ft == "dart" || ft == "zig" || ft == "nim" {
+                return self.highlight_c(line);
+            }
         }
+
+        // Default
+        vec![Token {
+            text: line.to_string(),
+            token_type: TokenType::Normal,
+        }]
     }
 
     fn highlight_rust(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "fn", "let", "mut", "const", "static", "if", "else", "match", "for", "while",
-            "loop", "break", "continue", "return", "pub", "mod", "use", "impl", "trait",
-            "struct", "enum", "type", "where", "async", "await", "move", "ref", "self",
-            "Self", "super", "crate", "as", "unsafe", "extern", "in",
+            "fn", "let", "mut", "const", "static", "if", "else", "match", "for", "while", "loop",
+            "break", "continue", "return", "pub", "mod", "use", "impl", "trait", "struct", "enum",
+            "type", "where", "async", "await", "move", "ref", "self", "Self", "super", "crate",
+            "as", "unsafe", "extern", "in",
         ];
 
         let types = [
-            "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
-            "usize", "f32", "f64", "bool", "char", "str", "String", "Vec", "Option",
-            "Result", "Box", "Rc", "Arc", "Cell", "RefCell",
+            "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
+            "f32", "f64", "bool", "char", "str", "String", "Vec", "Option", "Result", "Box", "Rc",
+            "Arc", "Cell", "RefCell",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -138,29 +189,62 @@ impl SyntaxHighlighter {
 
     fn highlight_python(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "def", "class", "if", "elif", "else", "for", "while", "break", "continue",
-            "return", "import", "from", "as", "try", "except", "finally", "raise",
-            "with", "lambda", "yield", "async", "await", "pass", "None", "True", "False",
-            "and", "or", "not", "in", "is", "global", "nonlocal",
+            "def", "class", "if", "elif", "else", "for", "while", "break", "continue", "return",
+            "import", "from", "as", "try", "except", "finally", "raise", "with", "lambda", "yield",
+            "async", "await", "pass", "None", "True", "False", "and", "or", "not", "in", "is",
+            "global", "nonlocal",
         ];
 
-        let types = ["int", "str", "float", "bool", "list", "dict", "tuple", "set"];
+        let types = [
+            "int", "str", "float", "bool", "list", "dict", "tuple", "set",
+        ];
 
         self.tokenize_line(line, &keywords, &types, "#", &[], &[])
     }
 
     fn highlight_javascript(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "function", "const", "let", "var", "if", "else", "for", "while", "do",
-            "switch", "case", "break", "continue", "return", "class", "extends",
-            "import", "export", "from", "async", "await", "try", "catch", "finally",
-            "throw", "new", "this", "super", "typeof", "instanceof", "delete",
-            "void", "null", "undefined", "true", "false",
+            "function",
+            "const",
+            "let",
+            "var",
+            "if",
+            "else",
+            "for",
+            "while",
+            "do",
+            "switch",
+            "case",
+            "break",
+            "continue",
+            "return",
+            "class",
+            "extends",
+            "import",
+            "export",
+            "from",
+            "async",
+            "await",
+            "try",
+            "catch",
+            "finally",
+            "throw",
+            "new",
+            "this",
+            "super",
+            "typeof",
+            "instanceof",
+            "delete",
+            "void",
+            "null",
+            "undefined",
+            "true",
+            "false",
         ];
 
         let types = [
-            "Array", "Object", "String", "Number", "Boolean", "Function", "Promise",
-            "Map", "Set", "WeakMap", "WeakSet",
+            "Array", "Object", "String", "Number", "Boolean", "Function", "Promise", "Map", "Set",
+            "WeakMap", "WeakSet",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -168,15 +252,15 @@ impl SyntaxHighlighter {
 
     fn highlight_c(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "if", "else", "while", "for", "do", "switch", "case", "break", "continue",
-            "return", "goto", "typedef", "struct", "union", "enum", "sizeof", "static",
-            "extern", "const", "volatile", "inline", "auto", "register",
+            "if", "else", "while", "for", "do", "switch", "case", "break", "continue", "return",
+            "goto", "typedef", "struct", "union", "enum", "sizeof", "static", "extern", "const",
+            "volatile", "inline", "auto", "register",
         ];
 
         let types = [
-            "void", "int", "char", "short", "long", "float", "double", "signed",
-            "unsigned", "size_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
-            "int8_t", "int16_t", "int32_t", "int64_t",
+            "void", "int", "char", "short", "long", "float", "double", "signed", "unsigned",
+            "size_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "int8_t", "int16_t",
+            "int32_t", "int64_t",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -215,7 +299,13 @@ impl SyntaxHighlighter {
             } else if ch.is_numeric() || (ch == '-' && current.is_empty()) {
                 current.push(ch);
                 while let Some(&next) = chars.peek() {
-                    if next.is_numeric() || next == '.' || next == 'e' || next == 'E' || next == '-' || next == '+' {
+                    if next.is_numeric()
+                        || next == '.'
+                        || next == 'e'
+                        || next == 'E'
+                        || next == '-'
+                        || next == '+'
+                    {
                         current.push(chars.next().unwrap());
                     } else {
                         break;
@@ -284,7 +374,7 @@ impl SyntaxHighlighter {
 
     fn highlight_toml(&self, line: &str) -> Vec<Token> {
         let trimmed = line.trim_start();
-        
+
         if trimmed.starts_with('#') {
             return vec![Token {
                 text: line.to_string(),
@@ -368,19 +458,77 @@ impl SyntaxHighlighter {
 
     fn highlight_java(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "public", "private", "protected", "static", "final", "abstract", "class",
-            "interface", "extends", "implements", "import", "package", "new", "return",
-            "if", "else", "for", "while", "do", "switch", "case", "break", "continue",
-            "try", "catch", "finally", "throw", "throws", "void", "this", "super",
-            "synchronized", "volatile", "transient", "native", "strictfp", "enum",
-            "assert", "instanceof", "default", "true", "false", "null",
+            "public",
+            "private",
+            "protected",
+            "static",
+            "final",
+            "abstract",
+            "class",
+            "interface",
+            "extends",
+            "implements",
+            "import",
+            "package",
+            "new",
+            "return",
+            "if",
+            "else",
+            "for",
+            "while",
+            "do",
+            "switch",
+            "case",
+            "break",
+            "continue",
+            "try",
+            "catch",
+            "finally",
+            "throw",
+            "throws",
+            "void",
+            "this",
+            "super",
+            "synchronized",
+            "volatile",
+            "transient",
+            "native",
+            "strictfp",
+            "enum",
+            "assert",
+            "instanceof",
+            "default",
+            "true",
+            "false",
+            "null",
         ];
 
         let types = [
-            "int", "long", "short", "byte", "char", "float", "double", "boolean",
-            "String", "Integer", "Long", "Short", "Byte", "Character", "Float",
-            "Double", "Boolean", "Object", "List", "ArrayList", "Map", "HashMap",
-            "Set", "HashSet", "Collection",
+            "int",
+            "long",
+            "short",
+            "byte",
+            "char",
+            "float",
+            "double",
+            "boolean",
+            "String",
+            "Integer",
+            "Long",
+            "Short",
+            "Byte",
+            "Character",
+            "Float",
+            "Double",
+            "Boolean",
+            "Object",
+            "List",
+            "ArrayList",
+            "Map",
+            "HashMap",
+            "Set",
+            "HashSet",
+            "Collection",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -388,16 +536,56 @@ impl SyntaxHighlighter {
 
     fn highlight_go(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "func", "var", "const", "type", "struct", "interface", "package", "import",
-            "if", "else", "for", "range", "switch", "case", "break", "continue",
-            "return", "defer", "go", "select", "chan", "map", "true", "false",
-            "nil", "goto", "fallthrough", "default",
+            "func",
+            "var",
+            "const",
+            "type",
+            "struct",
+            "interface",
+            "package",
+            "import",
+            "if",
+            "else",
+            "for",
+            "range",
+            "switch",
+            "case",
+            "break",
+            "continue",
+            "return",
+            "defer",
+            "go",
+            "select",
+            "chan",
+            "map",
+            "true",
+            "false",
+            "nil",
+            "goto",
+            "fallthrough",
+            "default",
         ];
 
         let types = [
-            "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
-            "uint32", "uint64", "float32", "float64", "string", "bool", "byte",
-            "rune", "error", "complex64", "complex128",
+            "int",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "float64",
+            "string",
+            "bool",
+            "byte",
+            "rune",
+            "error",
+            "complex64",
+            "complex128",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -405,31 +593,103 @@ impl SyntaxHighlighter {
 
     fn highlight_ruby(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "def", "end", "class", "module", "if", "elsif", "else", "unless", "case",
-            "when", "while", "until", "for", "break", "next", "redo", "retry", "return",
-            "yield", "super", "self", "nil", "true", "false", "and", "or", "not",
-            "begin", "rescue", "ensure", "raise", "require", "include", "extend",
-            "attr_reader", "attr_writer", "attr_accessor", "alias", "undef",
+            "def",
+            "end",
+            "class",
+            "module",
+            "if",
+            "elsif",
+            "else",
+            "unless",
+            "case",
+            "when",
+            "while",
+            "until",
+            "for",
+            "break",
+            "next",
+            "redo",
+            "retry",
+            "return",
+            "yield",
+            "super",
+            "self",
+            "nil",
+            "true",
+            "false",
+            "and",
+            "or",
+            "not",
+            "begin",
+            "rescue",
+            "ensure",
+            "raise",
+            "require",
+            "include",
+            "extend",
+            "attr_reader",
+            "attr_writer",
+            "attr_accessor",
+            "alias",
+            "undef",
         ];
 
-        let types = ["Array", "Hash", "String", "Integer", "Float", "Symbol", "Proc"];
+        let types = [
+            "Array", "Hash", "String", "Integer", "Float", "Symbol", "Proc",
+        ];
 
         self.tokenize_line(line, &keywords, &types, "#", &[], &[])
     }
 
     fn highlight_php(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "function", "class", "public", "private", "protected", "static", "final",
-            "abstract", "interface", "extends", "implements", "new", "return", "if",
-            "else", "elseif", "for", "foreach", "while", "do", "switch", "case",
-            "break", "continue", "try", "catch", "finally", "throw", "namespace",
-            "use", "const", "var", "echo", "print", "true", "false", "null",
-            "require", "require_once", "include", "include_once", "as",
+            "function",
+            "class",
+            "public",
+            "private",
+            "protected",
+            "static",
+            "final",
+            "abstract",
+            "interface",
+            "extends",
+            "implements",
+            "new",
+            "return",
+            "if",
+            "else",
+            "elseif",
+            "for",
+            "foreach",
+            "while",
+            "do",
+            "switch",
+            "case",
+            "break",
+            "continue",
+            "try",
+            "catch",
+            "finally",
+            "throw",
+            "namespace",
+            "use",
+            "const",
+            "var",
+            "echo",
+            "print",
+            "true",
+            "false",
+            "null",
+            "require",
+            "require_once",
+            "include",
+            "include_once",
+            "as",
         ];
 
         let types = [
-            "int", "string", "bool", "float", "array", "object", "mixed", "void",
-            "callable", "iterable",
+            "int", "string", "bool", "float", "array", "object", "mixed", "void", "callable",
+            "iterable",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -437,19 +697,83 @@ impl SyntaxHighlighter {
 
     fn highlight_swift(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "func", "var", "let", "class", "struct", "enum", "protocol", "extension",
-            "if", "else", "guard", "switch", "case", "for", "while", "repeat", "break",
-            "continue", "return", "throw", "throws", "rethrows", "try", "catch",
-            "import", "public", "private", "fileprivate", "internal", "static", "final",
-            "override", "mutating", "nonmutating", "lazy", "weak", "unowned", "self",
-            "Self", "super", "init", "deinit", "subscript", "true", "false", "nil",
-            "as", "is", "in", "inout", "associatedtype", "typealias",
+            "func",
+            "var",
+            "let",
+            "class",
+            "struct",
+            "enum",
+            "protocol",
+            "extension",
+            "if",
+            "else",
+            "guard",
+            "switch",
+            "case",
+            "for",
+            "while",
+            "repeat",
+            "break",
+            "continue",
+            "return",
+            "throw",
+            "throws",
+            "rethrows",
+            "try",
+            "catch",
+            "import",
+            "public",
+            "private",
+            "fileprivate",
+            "internal",
+            "static",
+            "final",
+            "override",
+            "mutating",
+            "nonmutating",
+            "lazy",
+            "weak",
+            "unowned",
+            "self",
+            "Self",
+            "super",
+            "init",
+            "deinit",
+            "subscript",
+            "true",
+            "false",
+            "nil",
+            "as",
+            "is",
+            "in",
+            "inout",
+            "associatedtype",
+            "typealias",
         ];
 
         let types = [
-            "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16",
-            "UInt32", "UInt64", "Float", "Double", "String", "Bool", "Character",
-            "Array", "Dictionary", "Set", "Optional", "Any", "AnyObject", "Void",
+            "Int",
+            "Int8",
+            "Int16",
+            "Int32",
+            "Int64",
+            "UInt",
+            "UInt8",
+            "UInt16",
+            "UInt32",
+            "UInt64",
+            "Float",
+            "Double",
+            "String",
+            "Bool",
+            "Character",
+            "Array",
+            "Dictionary",
+            "Set",
+            "Optional",
+            "Any",
+            "AnyObject",
+            "Void",
         ];
 
         self.tokenize_line(line, &keywords, &types, "//", &["/*"], &["*/"])
@@ -466,10 +790,10 @@ impl SyntaxHighlighter {
         }
 
         let keywords = [
-            "if", "then", "else", "elif", "fi", "case", "esac", "for", "while",
-            "until", "do", "done", "function", "select", "time", "in", "break",
-            "continue", "return", "exit", "export", "local", "readonly", "declare",
-            "eval", "exec", "shift", "test", "source", "alias", "unalias",
+            "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until", "do",
+            "done", "function", "select", "time", "in", "break", "continue", "return", "exit",
+            "export", "local", "readonly", "declare", "eval", "exec", "shift", "test", "source",
+            "alias", "unalias",
         ];
 
         let types = ["true", "false"];
@@ -652,18 +976,74 @@ impl SyntaxHighlighter {
 
     fn highlight_sql(&self, line: &str) -> Vec<Token> {
         let keywords = [
-            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE",
-            "DROP", "ALTER", "TABLE", "DATABASE", "INDEX", "VIEW", "JOIN", "INNER",
-            "LEFT", "RIGHT", "OUTER", "ON", "AS", "AND", "OR", "NOT", "IN", "LIKE",
-            "BETWEEN", "IS", "NULL", "ORDER", "BY", "GROUP", "HAVING", "LIMIT",
-            "OFFSET", "UNION", "DISTINCT", "COUNT", "SUM", "AVG", "MAX", "MIN",
-            "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "CONSTRAINT", "DEFAULT",
-            "AUTO_INCREMENT", "CASCADE", "SET", "VALUES", "INTO",
+            "SELECT",
+            "FROM",
+            "WHERE",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "CREATE",
+            "DROP",
+            "ALTER",
+            "TABLE",
+            "DATABASE",
+            "INDEX",
+            "VIEW",
+            "JOIN",
+            "INNER",
+            "LEFT",
+            "RIGHT",
+            "OUTER",
+            "ON",
+            "AS",
+            "AND",
+            "OR",
+            "NOT",
+            "IN",
+            "LIKE",
+            "BETWEEN",
+            "IS",
+            "NULL",
+            "ORDER",
+            "BY",
+            "GROUP",
+            "HAVING",
+            "LIMIT",
+            "OFFSET",
+            "UNION",
+            "DISTINCT",
+            "COUNT",
+            "SUM",
+            "AVG",
+            "MAX",
+            "MIN",
+            "PRIMARY",
+            "KEY",
+            "FOREIGN",
+            "REFERENCES",
+            "CONSTRAINT",
+            "DEFAULT",
+            "AUTO_INCREMENT",
+            "CASCADE",
+            "SET",
+            "VALUES",
+            "INTO",
         ];
 
         let types = [
-            "INT", "INTEGER", "VARCHAR", "CHAR", "TEXT", "DATE", "DATETIME",
-            "TIMESTAMP", "BOOLEAN", "FLOAT", "DOUBLE", "DECIMAL", "BLOB",
+            "INT",
+            "INTEGER",
+            "VARCHAR",
+            "CHAR",
+            "TEXT",
+            "DATE",
+            "DATETIME",
+            "TIMESTAMP",
+            "BOOLEAN",
+            "FLOAT",
+            "DOUBLE",
+            "DECIMAL",
+            "BLOB",
         ];
 
         self.tokenize_line(line, &keywords, &types, "--", &["/*"], &["*/"])
@@ -792,11 +1172,17 @@ impl SyntaxHighlighter {
         if !current.is_empty() {
             let token_type = if current.trim().parse::<f64>().is_ok() {
                 TokenType::Number
-            } else if current.trim() == "true" || current.trim() == "false" 
-                    || current.trim() == "True" || current.trim() == "False"
-                    || current.trim() == "TRUE" || current.trim() == "FALSE"
-                    || current.trim() == "yes" || current.trim() == "no"
-                    || current.trim() == "on" || current.trim() == "off" {
+            } else if current.trim() == "true"
+                || current.trim() == "false"
+                || current.trim() == "True"
+                || current.trim() == "False"
+                || current.trim() == "TRUE"
+                || current.trim() == "FALSE"
+                || current.trim() == "yes"
+                || current.trim() == "no"
+                || current.trim() == "on"
+                || current.trim() == "off"
+            {
                 TokenType::Keyword
             } else if in_string {
                 TokenType::String
@@ -892,7 +1278,8 @@ impl SyntaxHighlighter {
             if ch.is_numeric() && current_word.is_empty() {
                 current_word.push(ch);
                 while let Some(&next) = chars.peek() {
-                    if next.is_numeric() || next == '.' || next == 'x' || next == 'b' || next == 'o' {
+                    if next.is_numeric() || next == '.' || next == 'x' || next == 'b' || next == 'o'
+                    {
                         current_word.push(chars.next().unwrap());
                     } else {
                         break;

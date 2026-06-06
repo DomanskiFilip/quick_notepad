@@ -1,6 +1,7 @@
 mod app;
 mod editor;
 mod state;
+mod syntax;
 mod themes;
 
 pub use app::QuickNotepadApp;
@@ -14,14 +15,14 @@ pub fn run(file_path: Option<String>) {
             .with_icon(load_icon()),
         ..Default::default()
     };
-    
+
     let _ = eframe::run_native(
         "Quick Notepad",
         options,
         Box::new(move |cc| {
             // Setup custom fonts if needed
             setup_custom_fonts(&cc.egui_ctx);
-            
+
             Ok(Box::new(QuickNotepadApp::new(cc, file_path)))
         }),
     );
@@ -29,10 +30,10 @@ pub fn run(file_path: Option<String>) {
 
 fn setup_custom_fonts(ctx: &egui::Context) {
     let fonts = egui::FontDefinitions::default();
-    
+
     // Add monospace font for editor
-    // You can add custom fonts here if you want
-    
+    // add custom fonts here
+
     ctx.set_fonts(fonts);
 }
 

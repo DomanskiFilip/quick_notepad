@@ -3,7 +3,7 @@ use crate::core::{
     buffer::Buffer,
     edit_history::EditHistory,
     selection::{Selection, TextPosition},
-    tabs::TabManager,
+    tabs::{get_friendly_filetype, TabManager},
 };
 
 use crate::core::graphemes::*;
@@ -289,8 +289,17 @@ impl EditorState {
         fs::write(&full_path, content)?;
 
         // Update BOTH filepath (full path for saving) and filename (display name)
-        self.tab_manager.current_tab_mut().filepath = Some(full_path);
+        self.tab_manager.current_tab_mut().filepath = Some(full_path.clone());
         self.tab_manager.current_tab_mut().filename = Some(display_name);
+
+        // Deduce friendly filetype from extension and store it on the tab so
+        // syntax highlighting works consistently in both TUI and GUI.
+        let raw_ext = path_buf
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned());
+        let friendly_filetype = get_friendly_filetype(raw_ext);
+        self.tab_manager.current_tab_mut().filetype = friendly_filetype;
+
         self.mark_clean();
 
         let _ = self.tab_manager.save_session();
