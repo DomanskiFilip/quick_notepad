@@ -39,7 +39,6 @@ fn main() {
         }
     }
 
-    // launch
     if want_gui {
         // First non-flag argument after argv[0] is the optional file path
         let file_path = args.iter()
@@ -171,8 +170,11 @@ fn install() {
         }
     }
 
-    // Add ~/.local/bin to PATH in shell rc files if it isn't already there
+    // Add ~/.local/bin to PATH in shell rc files if it isn't already there.
+    // This is the fix for "command not found" on fresh Arch installs.
     add_to_path_if_needed(&bin_dir, &home);
+
+    create_system_symlink(&target_path);
 
     // Icon
     let icon_bytes = include_bytes!("../assets/icon.png");
@@ -204,6 +206,50 @@ fn install() {
     println!("\nℹ  If 'quick' is not found in a new terminal, run:\n");
     println!("    source ~/.bashrc   (or ~/.zshrc / ~/.profile)");
     println!("\n   or open a new terminal session.\n");
+}
+
+fn create_system_symlink(target_path: &str) {
+    let system_link = "/usr/local/bin/quick";
+
+    let _ = std::fs::remove_file(system_link);
+
+    #[cfg(unix)]
+    if std::os::unix::fs::symlink(target_path, system_link).is_ok() {
+        println!("✓ Symlinked {} → {} (enables 'sudo quick')", system_link, target_path);
+        return;
+    }
+
+    // sudo/root compatibility
+    let pkexec_ok = std::process::Command::new("pkexec")
+        .args(["ln", "-sf", target_path, system_link])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if pkexec_ok {
+        println!("✓ Symlinked {} → {} via pkexec (enables 'sudo quick')", system_link, target_path);
+        return;
+    }
+
+    let sudo_ok = std::process::Command::new("sudo")
+        .args(["-A", "ln", "-sf", target_path, system_link])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if sudo_ok {
+        println!("✓ Symlinked {} → {} via sudo (enables 'sudo quick')", system_link, target_path);
+        return;
+    }
+
+    println!(
+        "ℹ  One extra step needed to enable 'sudo quick':
+
+            sudo ln -sf {} {}
+
+            (this only needs to be done once)",
+        target_path, system_link
+    );
 }
 
 fn add_to_path_if_needed(bin_dir: &str, home: &str) {
@@ -244,7 +290,6 @@ fn add_to_path_if_needed(bin_dir: &str, home: &str) {
     }
 }
 
-// Uninstall
 fn uninstall() {
     use std::fs;
     use std::io::{self, Write};

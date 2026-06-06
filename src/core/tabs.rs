@@ -286,10 +286,6 @@ impl TabManager {
         let _ = self.save_session();
         Ok(self.active_tab_index)
     }
-
-    pub fn tab_count(&self) -> usize {
-        self.tabs.len()
-    }
 }
 
 impl Drop for TabManager {

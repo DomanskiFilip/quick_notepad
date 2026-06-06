@@ -13,7 +13,7 @@ use crate::core::{
 use caret::Caret;
 use crossterm::event::{read, Event, KeyCode, KeyEventKind};
 use terminal::Terminal;
-use view::{Buffer, View};
+use view::{View};
 
 pub struct TerminalEditor {
     tab_manager: TabManager,
@@ -55,27 +55,6 @@ impl TerminalEditor {
         };
         editor.sync_view_from_tab();
         Ok(editor)
-    }
-
-    // Compatibility shim — prefer open_fresh() or open_file().
-    pub fn new(buffer: Buffer) -> Self {
-        let tab_manager = TabManager::new(buffer.clone(), None, None);
-        let view = View::new(tab_manager.current_tab().buffer.clone());
-        let mut editor = Self {
-            tab_manager,
-            view,
-            caret: Caret::new(),
-            shortcuts: Shortcuts::new(),
-            quit_program: false,
-        };
-        editor.sync_view_from_tab();
-        editor
-    }
-
-    pub fn set_filename_and_filetype(&mut self, filename: Option<String>, filetype: Option<String>) {
-        self.tab_manager.current_tab_mut().filename = filename.clone();
-        self.tab_manager.current_tab_mut().filetype = filetype.clone();
-        self.view.set_filename_and_filetype(filename, filetype);
     }
     
     // Save live view/caret state INTO the current tab (call BEFORE switching).
