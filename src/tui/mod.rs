@@ -1,19 +1,19 @@
 // module binding tui logic, consuming shortcuts and save logic
 pub mod caret;
-mod terminal;
 pub mod syntax;
+mod terminal;
 pub mod view;
 
 use crate::core::{
     actions::Action,
     shortcuts::Shortcuts,
-    tabs::{TabManager, get_friendly_filetype},
+    tabs::{get_friendly_filetype, TabManager},
     updater::Updater,
 };
 use caret::Caret;
 use crossterm::event::{read, Event, KeyCode, KeyEventKind};
 use terminal::Terminal;
-use view::{View};
+use view::View;
 
 pub struct TerminalEditor {
     tab_manager: TabManager,
@@ -56,7 +56,7 @@ impl TerminalEditor {
         editor.sync_view_from_tab();
         Ok(editor)
     }
-    
+
     // Save live view/caret state INTO the current tab (call BEFORE switching).
     fn sync_tab_from_view(&mut self) {
         let tab = self.tab_manager.current_tab_mut();
@@ -100,48 +100,6 @@ impl TerminalEditor {
         Terminal::execute()?;
         Ok(())
     }
-    
-    // Scroll the view UP
-    fn scroll_up(&mut self, lines: usize) -> Result<(), std::io::Error> {
-        if self.view.scroll_offset == 0 {
-            return Ok(());
-        }
-        self.view.scroll_offset = self.view.scroll_offset.saturating_sub(lines);
-        self.view.needs_redraw = true;
-        self.view.render_if_needed(
-            &self.caret,
-            self.tab_manager.current_tab().has_unsaved_changes,
-        )?;
-        // Keep caret clamped to the visible area
-        self.caret.clamp_to_bounds()?;
-        Terminal::execute()?;
-        Ok(())
-    }
-
-    // Scroll the view DOWN
-    fn scroll_down(&mut self, lines: usize) -> Result<(), std::io::Error> {
-        let size = Terminal::get_size()?;
-        let visible_rows = size.height.saturating_sub(caret::Position::HEADER + 1) as usize;
-        let max_scroll = self
-            .view
-            .buffer
-            .lines
-            .len()
-            .saturating_sub(visible_rows);
-
-        if self.view.scroll_offset >= max_scroll {
-            return Ok(());
-        }
-        self.view.scroll_offset = (self.view.scroll_offset + lines).min(max_scroll);
-        self.view.needs_redraw = true;
-        self.view.render_if_needed(
-            &self.caret,
-            self.tab_manager.current_tab().has_unsaved_changes,
-        )?;
-        self.caret.clamp_to_bounds()?;
-        Terminal::execute()?;
-        Ok(())
-    }
 
     fn check_and_install_update(&mut self) -> Result<(), std::io::Error> {
         self.view.show_prompt(
@@ -174,7 +132,10 @@ impl TerminalEditor {
         if !update_info.update_available {
             self.view.show_prompt(
                 crate::tui::view::PromptKind::SearchInfo,
-                format!("You're running the latest version ({})", update_info.current_version),
+                format!(
+                    "You're running the latest version ({})",
+                    update_info.current_version
+                ),
             );
             self.view.render_if_needed(&self.caret, false)?;
             Terminal::execute()?;
@@ -189,7 +150,8 @@ impl TerminalEditor {
             "Update available: v{} → v{} | Press Y to install, N to cancel",
             update_info.current_version, update_info.latest_version
         );
-        self.view.show_prompt(crate::tui::view::PromptKind::SearchInfo, message);
+        self.view
+            .show_prompt(crate::tui::view::PromptKind::SearchInfo, message);
         self.view.needs_redraw = true;
         self.view.render_if_needed(&self.caret, false)?;
         Terminal::execute()?;
@@ -209,7 +171,8 @@ impl TerminalEditor {
                             Ok(_) => {
                                 self.view.show_prompt(
                                     crate::tui::view::PromptKind::SearchInfo,
-                                    "Update successful! Restart to use the new version.".to_string(),
+                                    "Update successful! Restart to use the new version."
+                                        .to_string(),
                                 );
                                 self.view.render_if_needed(&self.caret, false)?;
                                 Terminal::execute()?;
@@ -258,10 +221,8 @@ impl TerminalEditor {
         match self.main_loop() {
             Ok(_) => {}
             Err(e) => {
-                self.view.show_prompt(
-                    crate::tui::view::PromptKind::Error,
-                    format!("Error: {}", e),
-                );
+                self.view
+                    .show_prompt(crate::tui::view::PromptKind::Error, format!("Error: {}", e));
                 let _ = self.view.render_if_needed(
                     &self.caret,
                     self.tab_manager.current_tab().has_unsaved_changes,
@@ -374,20 +335,18 @@ impl TerminalEditor {
                                     }
                                 }
 
-                                Action::Cut => {
-                                    match self.view.cut_selection(&mut self.caret) {
-                                        Ok(Some(op)) => {
-                                            let tab = self.tab_manager.current_tab_mut();
-                                            tab.edit_history.push(op);
-                                            tab.has_unsaved_changes = true;
-                                        }
-                                        Err(e) => self.view.show_prompt(
-                                            crate::tui::view::PromptKind::Error,
-                                            e.to_string(),
-                                        ),
-                                        _ => {}
+                                Action::Cut => match self.view.cut_selection(&mut self.caret) {
+                                    Ok(Some(op)) => {
+                                        let tab = self.tab_manager.current_tab_mut();
+                                        tab.edit_history.push(op);
+                                        tab.has_unsaved_changes = true;
                                     }
-                                }
+                                    Err(e) => self.view.show_prompt(
+                                        crate::tui::view::PromptKind::Error,
+                                        e.to_string(),
+                                    ),
+                                    _ => {}
+                                },
 
                                 Action::Paste => {
                                     match self.view.paste_from_clipboard(&mut self.caret) {
@@ -434,9 +393,9 @@ impl TerminalEditor {
                                 Action::SelectMaxLeft => {
                                     self.view.move_with_selection("max_left", &mut self.caret)?
                                 }
-                                Action::SelectMaxRight => {
-                                    self.view.move_with_selection("max_right", &mut self.caret)?
-                                }
+                                Action::SelectMaxRight => self
+                                    .view
+                                    .move_with_selection("max_right", &mut self.caret)?,
                                 Action::SelectAll => self.view.select_all(&mut self.caret)?,
 
                                 Action::NextLine => {
@@ -484,8 +443,7 @@ impl TerminalEditor {
                                                     if ev.kind == KeyEventKind::Press =>
                                                 {
                                                     match ev.code {
-                                                        KeyCode::Char('y')
-                                                        | KeyCode::Char('Y') => {
+                                                        KeyCode::Char('y') | KeyCode::Char('Y') => {
                                                             self.quit_program = true;
                                                             break;
                                                         }
@@ -557,9 +515,13 @@ impl TerminalEditor {
                 Event::Mouse(mouse_event) => {
                     use crossterm::event::MouseEventKind;
                     match mouse_event.kind {
-                        // Scroll wheel — 3 lines per tick, feels natural
-                        MouseEventKind::ScrollUp => self.scroll_up(3)?,
-                        MouseEventKind::ScrollDown => self.scroll_down(3)?,
+                        // Handle mouse wheel scroll events
+                        MouseEventKind::ScrollUp => {
+                            self.view.handle_mouse_wheel(1.0, &mut self.caret)?;
+                        }
+                        MouseEventKind::ScrollDown => {
+                            self.view.handle_mouse_wheel(-1.0, &mut self.caret)?;
+                        }
                         _ => {
                             if let Some(action) = self.shortcuts.resolve_mouse(&mouse_event) {
                                 match action {
@@ -662,10 +624,9 @@ impl TerminalEditor {
                                         break;
                                     }
 
-                                    let path_buf = std::fs::canonicalize(&filename)
-                                        .unwrap_or_else(|_| {
-                                            let mut d =
-                                                std::env::current_dir().unwrap_or_default();
+                                    let path_buf =
+                                        std::fs::canonicalize(&filename).unwrap_or_else(|_| {
+                                            let mut d = std::env::current_dir().unwrap_or_default();
                                             d.push(&filename);
                                             d
                                         });

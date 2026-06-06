@@ -28,8 +28,8 @@ desktop_file = "assets/quick-notepad.desktop"
 
 [dependencies]
 crossterm = "0.29"
-arboard = { version = "3.4", features = ["wayland-data-control"] }
-unicode-segmentation = "1.10"
+arboard = { version = "3.6", features = ["wayland-data-control"] }
+unicode-segmentation = "1.13"
 unicode-width = "0.2.2"
 
 # GUI dependencies

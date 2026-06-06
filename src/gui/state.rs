@@ -6,6 +6,8 @@ use crate::core::{
     tabs::TabManager,
 };
 
+use crate::core::graphemes::*;
+
 pub struct EditorState {
     pub tab_manager: TabManager,
     pub selection: Option<Selection>,
@@ -17,7 +19,6 @@ pub struct EditorState {
     pub search_result_idx: usize,
     pub is_dragging: bool,
     clipboard_text: Option<String>,
-    
 }
 
 impl EditorState {
@@ -74,7 +75,7 @@ impl EditorState {
         self.tab_manager.current_tab().filename.as_deref()
     }
 
-    // Insert text at cursor position
+    // Insert text at cursor position (grapheme-aware)
     pub fn insert_text(&mut self, text: &str) {
         let pos = self.cursor_pos;
         let buffer = self.current_buffer_mut();
@@ -84,68 +85,77 @@ impl EditorState {
             buffer.lines.push(String::new());
         }
 
-        // Handle newlines
+        // Normalize line endings already handled by caller if needed
+        // Handle multi-line insert
         if text.contains('\n') {
-            let lines: Vec<&str> = text.split('\n').collect();
+            let parts: Vec<&str> = text.split('\n').collect();
+
+            // Work with a cloned current line so split_at_grapheme lifetimes are safe
             let current_line = buffer.lines[pos.line].clone();
-            let before: String = current_line.chars().take(pos.column).collect();
-            let after: String = current_line.chars().skip(pos.column).collect();
+            let grapheme_count = grapheme_len(&current_line);
+            let split_at = pos.column.min(grapheme_count);
+            let (before, after) = split_at_grapheme(&current_line, split_at);
 
-            buffer.lines[pos.line] = format!("{}{}", before, lines[0]);
+            // Replace current line with before + first part
+            buffer.lines[pos.line] = format!("{}{}", before, parts[0]);
 
-            for i in 1..lines.len() {
-                let line_content = if i == lines.len() - 1 {
-                    format!("{}{}", lines[i], after)
-                } else {
-                    lines[i].to_string()
-                };
-                buffer.lines.insert(pos.line + i, line_content);
+            // Insert middle/last parts
+            let mut insert_idx = pos.line + 1;
+            for i in 1..parts.len() {
+                let mut line_content = parts[i].to_string();
+                if i == parts.len() - 1 {
+                    // append the remainder of the original line
+                    line_content.push_str(after);
+                }
+                buffer.lines.insert(insert_idx, line_content);
+                insert_idx += 1;
             }
 
+            // Set cursor to end of last inserted line (grapheme count)
+            let final_line_idx = pos.line + parts.len() - 1;
+            let final_col = grapheme_len(&buffer.lines[final_line_idx]);
             self.cursor_pos = TextPosition {
-                line: pos.line + lines.len() - 1,
-                column: lines[lines.len() - 1].len(),
+                line: final_line_idx,
+                column: final_col,
             };
         } else {
-            // Single line insert
+            // Single line insert - use grapheme insert
             let line = &mut buffer.lines[pos.line];
-            if pos.column <= line.len() {
-                line.insert_str(pos.column, text);
-            } else {
-                line.push_str(text);
-            }
+            let grapheme_count = grapheme_len(line);
+            let insert_at = pos.column.min(grapheme_count);
+            insert_at_grapheme(line, insert_at, text);
             self.cursor_pos = TextPosition {
                 line: pos.line,
-                column: pos.column + text.len(),
+                column: insert_at + grapheme_len(text),
             };
         }
 
         self.mark_dirty();
     }
-    
+
     pub fn move_cursor(&mut self, dx: isize, dy: isize) {
         let line_count = self.current_buffer().lines.len();
-        
+
         let mut new_line = self.cursor_pos.line as isize + dy;
         new_line = new_line.clamp(0, line_count.saturating_sub(1) as isize);
-        
+
         self.cursor_pos.line = new_line as usize;
-    
-        let line_len = self.current_buffer().lines[self.cursor_pos.line].len();
+
+        let line_len = grapheme_len(&self.current_buffer().lines[self.cursor_pos.line]);
         let mut new_col = self.cursor_pos.column as isize + dx;
         new_col = new_col.clamp(0, line_len as isize);
-        
+
         self.cursor_pos.column = new_col as usize;
     }
-    
+
     pub fn clamp_cursor(&mut self) {
         let line_count = self.current_buffer().lines.len();
         self.cursor_pos.line = self.cursor_pos.line.min(line_count.saturating_sub(1));
-        let line_len = self.current_buffer().lines[self.cursor_pos.line].len();
+        let line_len = grapheme_len(&self.current_buffer().lines[self.cursor_pos.line]);
         self.cursor_pos.column = self.cursor_pos.column.min(line_len);
     }
 
-    // Delete selection or character at cursor
+    // Delete selection or character at cursor (grapheme-aware)
     pub fn delete_at_cursor(&mut self) {
         if let Some(selection) = self.selection.take() {
             self.delete_selection(selection);
@@ -154,8 +164,9 @@ impl EditorState {
             let buffer = self.current_buffer_mut();
             if pos.line < buffer.lines.len() {
                 let line = &mut buffer.lines[pos.line];
-                if pos.column < line.len() {
-                    line.remove(pos.column);
+                let grapheme_count = grapheme_len(line);
+                if pos.column < grapheme_count {
+                    let _ = remove_grapheme_at(line, pos.column);
                     self.clamp_cursor();
                     self.mark_dirty();
                 }
@@ -172,8 +183,9 @@ impl EditorState {
             let buffer = self.current_buffer_mut();
             if pos.line < buffer.lines.len() {
                 let line = &mut buffer.lines[pos.line];
-                if pos.column <= line.len() {
-                    line.remove(pos.column - 1);
+                let grapheme_count = grapheme_len(line);
+                if pos.column <= grapheme_count && pos.column > 0 {
+                    let _ = remove_grapheme_at(line, pos.column - 1);
                     self.cursor_pos.column -= 1;
                     self.mark_dirty();
                 }
@@ -182,7 +194,8 @@ impl EditorState {
             let pos = self.cursor_pos;
             let buffer = self.current_buffer_mut();
             let current_line = buffer.lines[pos.line].clone();
-            let prev_line_len = buffer.lines[pos.line - 1].len();
+            let prev_line_len = grapheme_len(&buffer.lines[pos.line - 1]);
+            // Merge lines
             buffer.lines[pos.line - 1].push_str(&current_line);
             buffer.lines.remove(pos.line);
             self.cursor_pos = TextPosition {
@@ -199,23 +212,31 @@ impl EditorState {
         let buffer = self.current_buffer_mut();
 
         if start.line == end.line {
-            // Single line deletion
-            let line = &mut buffer.lines[start.line];
-            let chars: Vec<char> = line.chars().collect();
-            let before: String = chars[..start.column].iter().collect();
-            let after: String = chars[end.column..].iter().collect();
-            *line = format!("{}{}", before, after);
+            // Single line deletion (grapheme-aware)
+            if let Some(line) = buffer.lines.get_mut(start.line) {
+                let line_graphemes = grapheme_len(line);
+                let start_col = start.column.min(line_graphemes);
+                let end_col = end.column.min(line_graphemes);
+                let byte_start = grapheme_to_byte_idx(line, start_col);
+                let byte_end = grapheme_to_byte_idx(line, end_col);
+                line.drain(byte_start..byte_end);
+            }
         } else {
-            // Multi-line deletion
-            let before_text = buffer.lines[start.line]
-                .chars()
-                .take(start.column)
-                .collect::<String>();
-            let after_text = buffer.lines[end.line]
-                .chars()
-                .skip(end.column)
-                .collect::<String>();
+            // Multi-line deletion (grapheme-aware)
+            let before_text = if let Some(line) = buffer.lines.get(start.line) {
+                grapheme_slice(line, 0, start.column.min(grapheme_len(line)))
+            } else {
+                String::new()
+            };
 
+            let after_text = if let Some(line) = buffer.lines.get(end.line) {
+                let gcount = grapheme_len(line);
+                grapheme_slice(line, end.column.min(gcount), gcount)
+            } else {
+                String::new()
+            };
+
+            // Remove lines in range
             for _ in start.line..=end.line {
                 if start.line < buffer.lines.len() {
                     buffer.lines.remove(start.line);
@@ -238,25 +259,24 @@ impl EditorState {
         }
         Ok(())
     }
-    
+
     // Save as new file
     pub fn save_as(&mut self, path: &str) -> Result<(), std::io::Error> {
         use std::fs;
-    
-        let path_buf = std::fs::canonicalize(path)
-            .unwrap_or_else(|_| {
-                // File doesn't exist yet — build absolute path manually
-                let mut current_dir = std::env::current_dir().unwrap_or_default();
-                current_dir.push(path);
-                current_dir
-            });
-    
+
+        let path_buf = std::fs::canonicalize(path).unwrap_or_else(|_| {
+            // File doesn't exist yet — build absolute path manually
+            let mut current_dir = std::env::current_dir().unwrap_or_default();
+            current_dir.push(path);
+            current_dir
+        });
+
         let full_path = path_buf.to_string_lossy().into_owned();
         let display_name = path_buf
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| full_path.clone());
-    
+
         let buffer = self.current_buffer();
         let last_line = buffer
             .lines
@@ -265,16 +285,16 @@ impl EditorState {
             .unwrap_or(0);
         let content_lines: Vec<String> = buffer.lines.iter().take(last_line + 1).cloned().collect();
         let content = content_lines.join("\n");
-    
+
         fs::write(&full_path, content)?;
-    
+
         // Update BOTH filepath (full path for saving) and filename (display name)
         self.tab_manager.current_tab_mut().filepath = Some(full_path);
         self.tab_manager.current_tab_mut().filename = Some(display_name);
         self.mark_clean();
-    
+
         let _ = self.tab_manager.save_session();
-    
+
         Ok(())
     }
 
@@ -287,17 +307,17 @@ impl EditorState {
 
             let (start, end) = selection.get_range();
             let text = self.extract_text_range(start, end);
-            
+
             // Try to use arboard (works on X11 and most Wayland compositors)
             if let Ok(mut clipboard) = arboard::Clipboard::new() {
                 let _ = clipboard.set_text(&text);
             }
-            
+
             // Also store internally as fallback
             self.clipboard_text = Some(text);
         }
     }
-    
+
     // Get the text from last copy operation
     pub fn get_clipboard_text(&self) -> Option<&str> {
         self.clipboard_text.as_deref()
@@ -328,11 +348,13 @@ impl EditorState {
         } else {
             None
         };
-        
+
         // Fall back to internal clipboard if arboard fails
         let text = text.or_else(|| self.clipboard_text.clone());
-        
-        if let Some(text) = text {
+
+        if let Some(mut text) = text {
+            // Normalize line endings for consistent pasting
+            text = text.replace("\r\n", "\n").replace('\r', "\n");
             self.insert_text(&text);
         }
     }
@@ -410,10 +432,10 @@ impl EditorState {
             self.search_result_idx = 0;
             return;
         }
-    
+
         let query = self.search_query.to_lowercase();
         let mut matches: Vec<(usize, usize)> = Vec::new(); // (line, col)
-    
+
         for (line_idx, line) in self.current_buffer().lines.iter().enumerate() {
             let line_lower = line.to_lowercase();
             let mut start = 0;
@@ -422,25 +444,25 @@ impl EditorState {
                 start += pos + 1;
             }
         }
-    
+
         if matches.is_empty() {
             self.search_results = matches;
             self.search_result_idx = 0;
             return;
         }
-    
+
         // Find the match closest to current cursor
         let cur = self.cursor_pos;
         let idx = matches
             .iter()
             .position(|&(line, col)| line > cur.line || (line == cur.line && col >= cur.column))
             .unwrap_or(0);
-    
+
         self.search_results = matches;
         self.search_result_idx = idx;
         self.jump_to_current_match();
     }
-    
+
     pub fn next_search_match(&mut self) {
         if self.search_results.is_empty() {
             self.perform_search();
@@ -449,7 +471,7 @@ impl EditorState {
         self.search_result_idx = (self.search_result_idx + 1) % self.search_results.len();
         self.jump_to_current_match();
     }
-    
+
     pub fn prev_search_match(&mut self) {
         if self.search_results.is_empty() {
             self.perform_search();
@@ -462,20 +484,23 @@ impl EditorState {
         };
         self.jump_to_current_match();
     }
-    
+
     fn jump_to_current_match(&mut self) {
         if let Some(&(line, col)) = self.search_results.get(self.search_result_idx) {
             let end_col = col + self.search_query.len();
             self.cursor_pos = TextPosition { line, column: col };
             self.selection = Some(Selection {
                 anchor: TextPosition { line, column: col },
-                cursor: TextPosition { line, column: end_col },
+                cursor: TextPosition {
+                    line,
+                    column: end_col,
+                },
             });
             // Scroll to keep match visible
-            self.ensure_cursor_visible();
+            self.ensure_cursor_visible(None);
         }
     }
-    
+
     pub fn clear_search(&mut self) {
         self.search_active = false;
         self.search_query.clear();
@@ -483,12 +508,27 @@ impl EditorState {
         self.search_result_idx = 0;
         self.selection = None;
     }
-    
-    fn ensure_cursor_visible(&mut self) {
+
+    // Ensure cursor is visible within the current viewport height (in lines).
+    // visible_rows should be the number of text rows visible in the editor area.
+    pub(in crate::gui) fn ensure_cursor_visible(&mut self, visible_rows: Option<usize>) {
         let line = self.cursor_pos.line;
+        // If cursor above viewport, jump viewport up
         if line < self.scroll_offset.0 {
             self.scroll_offset.0 = line;
+            return;
         }
-        // The lower bound is handled by render_content's visible_rows clamp
+
+        // If caller provided visible_rows, ensure bottom bound as well
+        if let Some(visible_rows) = visible_rows {
+            if visible_rows == 0 {
+                return;
+            }
+
+            if line >= self.scroll_offset.0 + visible_rows {
+                // place cursor roughly in middle of viewport
+                self.scroll_offset.0 = line.saturating_sub(visible_rows / 2);
+            }
+        }
     }
 }

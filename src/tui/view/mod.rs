@@ -42,7 +42,8 @@ pub struct View {
     pub needs_redraw: bool,
     pub search_state: Option<SearchState>,
     pub(in crate::tui) prompt: Option<Prompt>,
-    #[allow(dead_code)] // clipboard for wayland must be here even tho rust warns its unused - its not!
+    #[allow(dead_code)]
+    // clipboard for wayland must be here even tho rust warns its unused - its not!
     clipboard: Option<arboard::Clipboard>,
 }
 
@@ -64,7 +65,11 @@ impl View {
         }
     }
 
-    pub fn set_filename_and_filetype(&mut self, filename: Option<String>, filetype: Option<String>) {
+    pub fn set_filename_and_filetype(
+        &mut self,
+        filename: Option<String>,
+        filetype: Option<String>,
+    ) {
         self.filename = filename;
         self.filetype = filetype;
     }
@@ -217,6 +222,18 @@ impl View {
     pub fn handle_triple_click(&mut self, x: u16, y: u16, caret: &mut Caret) -> Result<(), Error> {
         mouse::handle_triple_click(self, x, y, caret)?;
         self.needs_redraw = true;
+        Ok(())
+    }
+
+    // Handle mouse wheel scroll
+    pub fn handle_mouse_wheel(&mut self, delta: f32, caret: &mut Caret) -> Result<(), Error> {
+        let lines_to_scroll = (delta.abs() * 3.0) as usize; // Adjust scroll sensitivity as needed
+                                                            // Positive delta -> scroll UP (same semantic as crossterm MouseEventKind::ScrollUp)
+        if delta > 0.0 {
+            mouse::scroll_up(self, caret, lines_to_scroll)?;
+        } else {
+            mouse::scroll_down(self, caret, lines_to_scroll)?;
+        }
         Ok(())
     }
 
