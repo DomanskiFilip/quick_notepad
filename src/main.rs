@@ -215,7 +215,7 @@ fn create_system_symlink(target_path: &str) {
         return;
     }
 
-    // sudo/root compatibility
+    // Try pkexec (graphical/polkit prompt)
     let pkexec_ok = std::process::Command::new("pkexec")
         .args(["ln", "-sf", target_path, system_link])
         .status()
@@ -227,8 +227,9 @@ fn create_system_symlink(target_path: &str) {
         return;
     }
 
+    // Try standard sudo
     let sudo_ok = std::process::Command::new("sudo")
-        .args(["-A", "ln", "-sf", target_path, system_link])
+        .args(["ln", "-sf", target_path, system_link]) 
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -238,6 +239,7 @@ fn create_system_symlink(target_path: &str) {
         return;
     }
 
+    // Fallback instructions if everything fails
     println!(
         "ℹ  One extra step needed to enable 'sudo quick':
 
