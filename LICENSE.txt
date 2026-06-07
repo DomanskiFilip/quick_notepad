@@ -4,16 +4,16 @@ Quick Notepad is licensed under the Creative Commons Attribution-NonCommercial-S
 
 You are free to:
 
-Share: Copy and redistribute the material in any medium or format.
+- Share: Copy and redistribute the material in any medium or format.
 
-Adapt: Remix, transform, and build upon the material.
+- Adapt: Remix, transform, and build upon the material.
 
 Under the following terms:
 
-Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
+- Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
 
-NonCommercial: You may not use the material for commercial purposes.
+- NonCommercial: You may not use the material for commercial purposes.
 
-ShareAlike: If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
+- ShareAlike: If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
 
 To view a copy of this license, visit: http://creativecommons.org/licenses/by-nc-sa/4.0/
