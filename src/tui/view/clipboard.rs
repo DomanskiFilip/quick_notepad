@@ -256,20 +256,23 @@ fn insert_text_at_cursor(
         view.buffer.lines[buffer_line_idx] = format!("{}{}", before, lines[0]);
 
         // Insert all middle and last lines
-        let mut insert_idx = buffer_line_idx + 1;
-        for i in 1..lines.len() {
-            let line_content = if i == lines.len() - 1 {
-                format!("{}{}", lines[i], after)
-            } else {
-                lines[i].to_string()
-            };
-
-            if insert_idx < view.buffer.lines.len() {
+        let mut insert_idx = buffer_line_idx.saturating_add(1);
+        
+        for (i, line) in lines.iter().enumerate().skip(1) {
+            let mut line_content = line.to_string();
+            
+            // Handle the 'after' suffix on the last line
+            if i == lines.len() - 1 {
+                line_content.push_str(&after);
+            }
+        
+            if insert_idx <= view.buffer.lines.len() {
                 view.buffer.lines.insert(insert_idx, line_content);
             } else {
                 view.buffer.lines.push(line_content);
             }
-            insert_idx += 1;
+            
+            insert_idx = insert_idx.saturating_add(1);
         }
 
         // Calculate final position (in graphemes)

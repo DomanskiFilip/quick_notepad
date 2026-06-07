@@ -39,8 +39,8 @@ fn build_line_galley(
 
     let byte_for_char = |c: usize| -> usize { *char_byte_offsets.get(c).unwrap_or(&line.len()) };
 
-    let sel_start_byte = sel_start.map(|c| byte_for_char(c));
-    let sel_end_byte = sel_end.map(|c| byte_for_char(c));
+    let sel_start_byte = sel_start.map(byte_for_char);
+    let sel_end_byte = sel_end.map(byte_for_char);
 
     // Walk tokens, splitting each token's byte range against the selection range.
     let mut byte_pos = 0usize;
@@ -279,11 +279,9 @@ impl<'a> EditorPanel<'a> {
             let cell_px = 8.4_f32; // same heuristic used elsewhere
             let max_cols = (text_area_px / cell_px) as usize;
 
-            if let Some(sel) = self.state.selection.take() {
-                if sel.is_active() {
-                    // Delete the active selection before inserting pasted text so we don't duplicate content.
-                    self.delete_selection_inline(sel);
-                }
+            if let Some(sel) = self.state.selection.take().filter(|s| s.is_active()) {
+                // Delete the active selection before inserting pasted text so we don't duplicate content.
+                self.delete_selection_inline(sel);
             }
 
             let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -301,10 +299,12 @@ impl<'a> EditorPanel<'a> {
         ui.input(|i| {
             for event in &i.events {
                 if let egui::Event::Text(text) = event {
-                    if !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.command {
-                        if !text.chars().any(|c| c.is_control()) {
-                            self.state.insert_text(text);
-                        }
+                    if !i.modifiers.ctrl
+                        && !i.modifiers.alt
+                        && !i.modifiers.command
+                        && !text.chars().any(|c| c.is_control())
+                    {
+                        self.state.insert_text(text);
                     }
                 }
             }

@@ -101,7 +101,7 @@ impl QuickNotepadApp {
                         ui.close();
                     }
                 });
-                
+
                 ui.menu_button("Help", |ui| {
                     if ui.button("🔄 Check for Updates (Ctrl+U)").clicked() {
                         self.handle_action(Action::CheckUpdate);
@@ -145,7 +145,6 @@ impl QuickNotepadApp {
                 let version = env!("CARGO_PKG_VERSION");
                 ui.label(format!("v{}", version));
 
-
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label("© Filip Domanski");
                     ui.separator();
@@ -172,17 +171,50 @@ impl QuickNotepadApp {
         ctx.input_mut(|i| {
             // Map egui shortcuts to our Action enum
             let actions = vec![
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::S), Action::Save),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::N), Action::New),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Q), Action::Quit),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Z), Action::Undo),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Y), Action::Redo),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::C), Action::Copy),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::X), Action::Cut),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::V), Action::Paste),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F), Action::Search),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::A), Action::SelectAll),
-                (egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::U), Action::CheckUpdate),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::S),
+                    Action::Save,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::N),
+                    Action::New,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Q),
+                    Action::Quit,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Z),
+                    Action::Undo,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Y),
+                    Action::Redo,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::C),
+                    Action::Copy,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::X),
+                    Action::Cut,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::V),
+                    Action::Paste,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F),
+                    Action::Search,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::A),
+                    Action::SelectAll,
+                ),
+                (
+                    egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::U),
+                    Action::CheckUpdate,
+                ),
             ];
 
             for (shortcut, action) in actions {
@@ -194,9 +226,15 @@ impl QuickNotepadApp {
             // Tab switching - Ctrl+1-9
             for num in 1..=9 {
                 let key = match num {
-                    1 => egui::Key::Num1, 2 => egui::Key::Num2, 3 => egui::Key::Num3,
-                    4 => egui::Key::Num4, 5 => egui::Key::Num5, 6 => egui::Key::Num6,
-                    7 => egui::Key::Num7, 8 => egui::Key::Num8, 9 => egui::Key::Num9,
+                    1 => egui::Key::Num1,
+                    2 => egui::Key::Num2,
+                    3 => egui::Key::Num3,
+                    4 => egui::Key::Num4,
+                    5 => egui::Key::Num5,
+                    6 => egui::Key::Num6,
+                    7 => egui::Key::Num7,
+                    8 => egui::Key::Num8,
+                    9 => egui::Key::Num9,
                     _ => egui::Key::Num0,
                 };
                 if i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::CTRL, key)) {
@@ -244,7 +282,7 @@ impl QuickNotepadApp {
             }
             Action::Search => {
                 self.state.search_active = true;
-                self.dialog_has_focus = true; 
+                self.dialog_has_focus = true;
             }
             Action::SelectAll => {
                 self.state.select_all();
@@ -275,20 +313,19 @@ impl QuickNotepadApp {
                         response.request_focus();
                     }
 
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if !self.save_filename.is_empty() {
-                            let _ = self.state.save_as(&self.save_filename);
-                            close_dialog = true;
-                        }
+                    if response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && !self.save_filename.is_empty()
+                    {
+                        let _ = self.state.save_as(&self.save_filename);
+                        close_dialog = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        if !self.save_filename.is_empty() {
-                            let _ = self.state.save_as(&self.save_filename);
-                            close_dialog = true;
-                        }
+                    if ui.button("Save").clicked() && !self.save_filename.is_empty() {
+                        let _ = self.state.save_as(&self.save_filename);
+                        close_dialog = true;
                     }
 
                     if ui.button("Cancel").clicked() {
@@ -310,7 +347,7 @@ impl QuickNotepadApp {
 
     fn show_shortcuts_window(&mut self, ctx: &Context) {
         use crate::core::shortcuts::Shortcuts;
-        
+
         egui::Window::new("Keyboard Shortcuts")
             .collapsible(true)
             .resizable(true)
@@ -324,7 +361,7 @@ impl QuickNotepadApp {
 
                         // Get shortcuts from core Shortcuts module
                         let shortcuts = Shortcuts::get_ctrl_shortcuts();
-                        
+
                         for (shortcut, description) in shortcuts {
                             ui.label(description);
                             ui.label(shortcut);
@@ -337,47 +374,50 @@ impl QuickNotepadApp {
                 }
             });
     }
-    
+
     fn show_update_dialog(&mut self, ctx: &Context) {
         let mut close_dialog = false;
         let mut perform_update = false;
-        
+
         if let Some(info) = &self.update_info {
             egui::Window::new("Update Available")
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    ui.heading(format!("Version {} → {}", info.current_version, info.latest_version));
+                    ui.heading(format!(
+                        "Version {} → {}",
+                        info.current_version, info.latest_version
+                    ));
                     ui.separator();
-                    
+
                     ui.label("Release Notes:");
                     egui::ScrollArea::vertical()
                         .max_height(200.0)
                         .show(ui, |ui| {
                             ui.label(&info.release_notes);
                         });
-                    
+
                     ui.separator();
-                    
+
                     ui.horizontal(|ui| {
                         if ui.button("Update Now").clicked() {
                             perform_update = true;
                             close_dialog = true;
                         }
-                        
+
                         if ui.button("Later").clicked() {
                             close_dialog = true;
                         }
                     });
                 });
         }
-        
+
         if perform_update {
             // Perform update in background
             use crate::core::updater::Updater;
             let updater = Updater::new();
-            
+
             match updater.perform_update() {
                 Ok(_) => {
                     eprintln!("Update successful! Please restart the application.");
@@ -388,7 +428,7 @@ impl QuickNotepadApp {
                 }
             }
         }
-        
+
         if close_dialog {
             self.show_update_dialog = false;
             self.update_info = None;
@@ -397,16 +437,19 @@ impl QuickNotepadApp {
 
     fn check_for_updates_gui(&mut self) {
         use crate::core::updater::Updater;
-        
+
         let updater = Updater::new();
-        
+
         match updater.check_for_updates() {
             Ok(info) => {
                 if info.update_available {
                     self.show_update_dialog = true;
                     self.update_info = Some(info);
                 } else {
-                    eprintln!("No updates available. Running version {}", info.current_version);
+                    eprintln!(
+                        "No updates available. Running version {}",
+                        info.current_version
+                    );
                 }
             }
             Err(e) => {
@@ -438,7 +481,7 @@ impl eframe::App for QuickNotepadApp {
         if self.show_shortcuts {
             self.show_shortcuts_window(ctx);
         }
-        
+
         if self.show_update_dialog {
             self.show_update_dialog(ctx);
         }

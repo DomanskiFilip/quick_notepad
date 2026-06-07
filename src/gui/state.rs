@@ -100,15 +100,20 @@ impl EditorState {
             buffer.lines[pos.line] = format!("{}{}", before, parts[0]);
 
             // Insert middle/last parts
-            let mut insert_idx = pos.line + 1;
-            for i in 1..parts.len() {
-                let mut line_content = parts[i].to_string();
+            for (i, part) in parts.iter().enumerate().skip(1) {
+                let mut line_content = part.to_string();
                 if i == parts.len() - 1 {
                     // append the remainder of the original line
                     line_content.push_str(after);
                 }
-                buffer.lines.insert(insert_idx, line_content);
-                insert_idx += 1;
+
+                let insert_idx = pos.line + i;
+                // Double-check bounds safety dynamically as the vector grows
+                if insert_idx <= buffer.lines.len() {
+                    buffer.lines.insert(insert_idx, line_content);
+                } else {
+                    buffer.lines.push(line_content);
+                }
             }
 
             // Set cursor to end of last inserted line (grapheme count)

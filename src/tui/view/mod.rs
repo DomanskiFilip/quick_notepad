@@ -438,11 +438,7 @@ pub mod helpers {
         let y = screen_y.min(size.height.saturating_sub(2));
 
         // Adjust for margin
-        let x = if screen_x >= Position::MARGIN {
-            screen_x - Position::MARGIN
-        } else {
-            0
-        };
+        let x = screen_x.saturating_sub(Position::MARGIN);
 
         // Convert screen Y to buffer line index (accounting for header and scroll)
         let line_idx = if y >= Position::HEADER {

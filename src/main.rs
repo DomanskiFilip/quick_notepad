@@ -201,13 +201,9 @@ fn install() {
     let _ = std::process::Command::new("update-desktop-database")
         .arg(&desktop_dir)
         .status();
-
-    println!("✓ Desktop integration complete. You can now find Quick Notepad in your menu.");
-    println!("\nℹ  If 'quick' is not found in a new terminal, run:\n");
-    println!("    source ~/.bashrc   (or ~/.zshrc / ~/.profile)");
-    println!("\n   or open a new terminal session.\n");
 }
 
+// sudo/root compatibility layer
 fn create_system_symlink(target_path: &str) {
     let system_link = "/usr/local/bin/quick";
 

@@ -258,7 +258,7 @@ fn draw_shortcuts_footer() -> Result<(), Error> {
             MoveTo(current_x, footer_row),
             SetForegroundColor(Color::DarkYellow),
             SetAttribute(Attribute::Bold),
-            Print(format!("{}", key)),
+            Print(key),
             SetAttribute(Attribute::Reset),
         )?;
         current_x += key.len() as u16;

@@ -1,6 +1,6 @@
 // shortcuts module to handle key mappings
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
 use crate::core::actions::Action;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
 pub struct Shortcuts {
     last_click_time: std::time::Instant,
@@ -21,33 +21,153 @@ impl Shortcuts {
     // Format: (KeyCode, Modifiers, Action, Description)
     fn get_mappings() -> Vec<(KeyCode, KeyModifiers, Action, &'static str)> {
         vec![
-            (KeyCode::Left, KeyModifiers::empty(), Action::Left, "Move caret left"),
-            (KeyCode::Right, KeyModifiers::empty(), Action::Right, "Move caret right"),
-            (KeyCode::Up, KeyModifiers::empty(), Action::Up, "Move caret up"),
-            (KeyCode::Down, KeyModifiers::empty(), Action::Down, "Move caret down"),
-            (KeyCode::PageUp, KeyModifiers::empty(), Action::Top, "Move to top of view"),
-            (KeyCode::PageDown, KeyModifiers::empty(), Action::Bottom, "Move to bottom of view"),
-            (KeyCode::Home, KeyModifiers::empty(), Action::MaxLeft, "Move to start of line"),
-            (KeyCode::End, KeyModifiers::empty(), Action::MaxRight, "Move to end of line"),
-            (KeyCode::Enter, KeyModifiers::empty(), Action::NextLine, "Insert new line"),
-            (KeyCode::Tab, KeyModifiers::empty(), Action::Print, "Insert tab (4 spaces)"),
-            (KeyCode::Backspace, KeyModifiers::empty(), Action::Backspace, "Delete before cursor"),
-            (KeyCode::Delete, KeyModifiers::empty(), Action::Delete, "Delete at cursor"),
-            (KeyCode::Char('g'), KeyModifiers::CONTROL, Action::ToggleCtrlShortcuts, "Toggle ctrl shortcuts footer"),
-            (KeyCode::Char('q'), KeyModifiers::CONTROL, Action::Quit, "Quit"),
-            (KeyCode::Char('s'), KeyModifiers::CONTROL, Action::Save, "Save"),
-            (KeyCode::Char('n'), KeyModifiers::CONTROL, Action::New, "New"),
-            (KeyCode::Char('c'), KeyModifiers::CONTROL, Action::Copy, "Copy"),
-            (KeyCode::Char('v'), KeyModifiers::CONTROL, Action::Paste, "Paste"),
-            (KeyCode::Char('x'), KeyModifiers::CONTROL, Action::Cut, "Cut"),
-            (KeyCode::Char('a'), KeyModifiers::CONTROL, Action::SelectAll, "Select all"),
-            (KeyCode::Char('z'), KeyModifiers::CONTROL, Action::Undo, "Undo"),
-            (KeyCode::Char('y'), KeyModifiers::CONTROL, Action::Redo, "Redo"),
-            (KeyCode::Char('f'), KeyModifiers::CONTROL, Action::Search, "Search"),
-            (KeyCode::Char('u'), KeyModifiers::CONTROL, Action::CheckUpdate, "Check for updates"),
+            (
+                KeyCode::Left,
+                KeyModifiers::empty(),
+                Action::Left,
+                "Move caret left",
+            ),
+            (
+                KeyCode::Right,
+                KeyModifiers::empty(),
+                Action::Right,
+                "Move caret right",
+            ),
+            (
+                KeyCode::Up,
+                KeyModifiers::empty(),
+                Action::Up,
+                "Move caret up",
+            ),
+            (
+                KeyCode::Down,
+                KeyModifiers::empty(),
+                Action::Down,
+                "Move caret down",
+            ),
+            (
+                KeyCode::PageUp,
+                KeyModifiers::empty(),
+                Action::Top,
+                "Move to top of view",
+            ),
+            (
+                KeyCode::PageDown,
+                KeyModifiers::empty(),
+                Action::Bottom,
+                "Move to bottom of view",
+            ),
+            (
+                KeyCode::Home,
+                KeyModifiers::empty(),
+                Action::MaxLeft,
+                "Move to start of line",
+            ),
+            (
+                KeyCode::End,
+                KeyModifiers::empty(),
+                Action::MaxRight,
+                "Move to end of line",
+            ),
+            (
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                Action::NextLine,
+                "Insert new line",
+            ),
+            (
+                KeyCode::Tab,
+                KeyModifiers::empty(),
+                Action::Print,
+                "Insert tab (4 spaces)",
+            ),
+            (
+                KeyCode::Backspace,
+                KeyModifiers::empty(),
+                Action::Backspace,
+                "Delete before cursor",
+            ),
+            (
+                KeyCode::Delete,
+                KeyModifiers::empty(),
+                Action::Delete,
+                "Delete at cursor",
+            ),
+            (
+                KeyCode::Char('g'),
+                KeyModifiers::CONTROL,
+                Action::ToggleCtrlShortcuts,
+                "Toggle ctrl shortcuts footer",
+            ),
+            (
+                KeyCode::Char('q'),
+                KeyModifiers::CONTROL,
+                Action::Quit,
+                "Quit",
+            ),
+            (
+                KeyCode::Char('s'),
+                KeyModifiers::CONTROL,
+                Action::Save,
+                "Save",
+            ),
+            (
+                KeyCode::Char('n'),
+                KeyModifiers::CONTROL,
+                Action::New,
+                "New",
+            ),
+            (
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+                Action::Copy,
+                "Copy",
+            ),
+            (
+                KeyCode::Char('v'),
+                KeyModifiers::CONTROL,
+                Action::Paste,
+                "Paste",
+            ),
+            (
+                KeyCode::Char('x'),
+                KeyModifiers::CONTROL,
+                Action::Cut,
+                "Cut",
+            ),
+            (
+                KeyCode::Char('a'),
+                KeyModifiers::CONTROL,
+                Action::SelectAll,
+                "Select all",
+            ),
+            (
+                KeyCode::Char('z'),
+                KeyModifiers::CONTROL,
+                Action::Undo,
+                "Undo",
+            ),
+            (
+                KeyCode::Char('y'),
+                KeyModifiers::CONTROL,
+                Action::Redo,
+                "Redo",
+            ),
+            (
+                KeyCode::Char('f'),
+                KeyModifiers::CONTROL,
+                Action::Search,
+                "Search",
+            ),
+            (
+                KeyCode::Char('u'),
+                KeyModifiers::CONTROL,
+                Action::CheckUpdate,
+                "Check for updates",
+            ),
         ]
     }
-        
+
     pub fn resolve(&mut self, event: &KeyEvent) -> Option<Action> {
         match (event.code, event.modifiers) {
             // Movement with Shift = Selection
@@ -59,7 +179,7 @@ impl Shortcuts {
             (KeyCode::PageDown, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectBottom),
             (KeyCode::Home, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectMaxLeft),
             (KeyCode::End, m) if m.contains(KeyModifiers::SHIFT) => Some(Action::SelectMaxRight),
-            
+
             // Regular movement (clears selection)
             (KeyCode::Left, _) => Some(Action::Left),
             (KeyCode::Right, _) => Some(Action::Right),
@@ -69,9 +189,9 @@ impl Shortcuts {
             (KeyCode::PageDown, _) => Some(Action::Bottom),
             (KeyCode::Home, _) => Some(Action::MaxLeft),
             (KeyCode::End, _) => Some(Action::MaxRight),
-            
+
             (KeyCode::Enter, _) => Some(Action::NextLine),
-            (KeyCode::Tab, _) => Some(Action::Print),  // Tab inserts 4 spaces
+            (KeyCode::Tab, _) => Some(Action::Print), // Tab inserts 4 spaces
             (KeyCode::Backspace, _) => Some(Action::Backspace),
             (KeyCode::Delete, _) => Some(Action::Delete),
             (KeyCode::Char('g'), KeyModifiers::CONTROL) => Some(Action::ToggleCtrlShortcuts),
@@ -125,17 +245,17 @@ impl Shortcuts {
             _ => None,
         }
     }
-    
+
     pub fn resolve_mouse(&mut self, event: &MouseEvent) -> Option<Action> {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let now = std::time::Instant::now();
                 let pos = (event.column, event.row);
-                
+
                 // Detect double/triple click (within 500ms and same position)
                 if let Some(last_pos) = self.last_click_pos {
-                    if now.duration_since(self.last_click_time).as_millis() < 500 
-                        && last_pos == pos {
+                    if now.duration_since(self.last_click_time).as_millis() < 500 && last_pos == pos
+                    {
                         self.click_count += 1;
                     } else {
                         self.click_count = 1;
@@ -143,19 +263,19 @@ impl Shortcuts {
                 } else {
                     self.click_count = 1;
                 }
-                
+
                 self.last_click_time = now;
                 self.last_click_pos = Some(pos);
-                
+
                 match self.click_count {
                     2 => Some(Action::MouseDoubleClick(event.column, event.row)),
                     3 => {
                         self.click_count = 0; // Reset after triple
                         Some(Action::MouseTripleClick(event.column, event.row))
-                    },
+                    }
                     _ => Some(Action::MouseDown(event.column, event.row)),
                 }
-            },
+            }
             MouseEventKind::Drag(MouseButton::Left) => {
                 Some(Action::MouseDrag(event.column, event.row))
             }
@@ -163,7 +283,7 @@ impl Shortcuts {
             _ => None,
         }
     }
-    
+
     // Returns Ctrl shortcuts for footer display
     pub fn get_ctrl_shortcuts() -> Vec<(String, &'static str)> {
         Self::get_mappings()
@@ -172,20 +292,26 @@ impl Shortcuts {
             .map(|(code, mods, _, desc)| (Self::key_to_short_string(code, mods), desc))
             .collect()
     }
-    
+
     // print all shortcuts
-    pub fn print_all() {        
+    pub fn print_all() {
         for (code, mods, _, desc) in Self::get_mappings() {
             println!("  {:<15} : {}", Self::key_to_string(code, mods), desc);
         }
     }
-    
+
     // used to display shortcuts with flag --shortcuts
     fn key_to_string(code: KeyCode, mods: KeyModifiers) -> String {
         let mut string = String::new();
-        if mods.contains(KeyModifiers::CONTROL) { string.push_str("Ctrl+"); }
-        if mods.contains(KeyModifiers::ALT) { string.push_str("Alt+"); }
-        if mods.contains(KeyModifiers::SHIFT) { string.push_str("Shift+"); }
+        if mods.contains(KeyModifiers::CONTROL) {
+            string.push_str("Ctrl+");
+        }
+        if mods.contains(KeyModifiers::ALT) {
+            string.push_str("Alt+");
+        }
+        if mods.contains(KeyModifiers::SHIFT) {
+            string.push_str("Shift+");
+        }
         match code {
             KeyCode::Char(character) => string.push(character.to_ascii_uppercase()),
             KeyCode::Left => string.push_str("Left Arrow"),
@@ -204,16 +330,22 @@ impl Shortcuts {
         }
         string
     }
-    
+
     // Short format for footer display (^Q, ^S, etc.)
     fn key_to_short_string(code: KeyCode, mods: KeyModifiers) -> String {
         let mut string = String::new();
-        if mods.contains(KeyModifiers::CONTROL) { string.push('^'); }
-        if mods.contains(KeyModifiers::ALT) { string.push_str("A-"); }
-        if mods.contains(KeyModifiers::SHIFT) { string.push_str("S-"); }
+        if mods.contains(KeyModifiers::CONTROL) {
+            string.push('^');
+        }
+        if mods.contains(KeyModifiers::ALT) {
+            string.push_str("A-");
+        }
+        if mods.contains(KeyModifiers::SHIFT) {
+            string.push_str("S-");
+        }
         match code {
             KeyCode::Char(character) => string.push(character.to_ascii_uppercase()),
-            _ => string.push_str("?"),
+            _ => string.push('?'),
         }
         string
     }
