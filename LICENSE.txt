@@ -1,11 +1,19 @@
 Copyright (c) 2026 Filip Domanski
 
-quick notepad is provided for personal, non-commercial use only. You may view, download, and run the application or source code for your own personal purposes.
+Quick Notepad is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
 
-You may not:
-- Redistribute, host, or publish the code or application in any form, whether modified or unmodified without, permission.
-- Monetize, sell, or offer the code or application as a service.
+You are free to:
 
-Filip Domanski is the exclusive host and distributor of quick notepad. For commercial or redistribution inquiries, contact the copyright holder.
+Share: Copy and redistribute the material in any medium or format.
 
-All rights reserved.
+Adapt: Remix, transform, and build upon the material.
+
+Under the following terms:
+
+Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
+
+NonCommercial: You may not use the material for commercial purposes.
+
+ShareAlike: If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
+
+To view a copy of this license, visit: http://creativecommons.org/licenses/by-nc-sa/4.0/
