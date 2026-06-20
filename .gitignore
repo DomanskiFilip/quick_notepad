@@ -16,3 +16,5 @@ Cargo.lock
 
 # quick local install files and scripts
 quick-notepad-*
+
+/AUR_quick_deplyment
