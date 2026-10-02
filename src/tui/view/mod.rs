@@ -12,7 +12,7 @@ use crate::core::{
     selection::{Selection, TextPosition},
 };
 use crate::tui::{caret::Caret, terminal::Terminal};
-pub use search::SearchState;
+pub use crate::core::search::SearchState;
 use std::io::Error;
 
 // Prompt kind describes the intent of the footer prompt.

@@ -112,6 +112,12 @@ impl Shortcuts {
                 "Save",
             ),
             (
+                KeyCode::Char('o'),
+                KeyModifiers::CONTROL,
+                Action::Save,
+                "Save (alt, for SSH)",
+            ),
+            (
                 KeyCode::Char('n'),
                 KeyModifiers::CONTROL,
                 Action::New,
@@ -196,6 +202,7 @@ impl Shortcuts {
             (KeyCode::Delete, _) => Some(Action::Delete),
             (KeyCode::Char('g'), KeyModifiers::CONTROL) => Some(Action::ToggleCtrlShortcuts),
             (KeyCode::Char('s'), KeyModifiers::CONTROL) => Some(Action::Save),
+            (KeyCode::Char('o'), KeyModifiers::CONTROL) => Some(Action::Save),
             (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(Action::New),
             (KeyCode::Char('q'), KeyModifiers::CONTROL) => Some(Action::Quit),
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => Some(Action::Copy),

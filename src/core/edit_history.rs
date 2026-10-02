@@ -41,6 +41,12 @@ pub enum Edit {
         old_text: String,
         new_text: String,
     },
+    // Replace a block of whole lines (used by the GUI, which diffs buffer snapshots)
+    ReplaceLines {
+        start: usize,
+        old_lines: Vec<String>,
+        new_lines: Vec<String>,
+    },
 }
 
 // A complete edit operation with before/after cursor state
@@ -125,6 +131,7 @@ impl EditHistory {
             match (&last_op.edit, &operation.edit) {
                 (Edit::InsertText { line: l1, .. }, Edit::InsertText { line: l2, .. }) => l1 == l2,
                 (Edit::DeleteText { line: l1, .. }, Edit::DeleteText { line: l2, .. }) => l1 == l2,
+                (Edit::ReplaceLines { start: s1, new_lines: n1, .. }, Edit::ReplaceLines { start: s2, old_lines: o2, .. }) => s1 == s2 && n1.len() == 1 && o2.len() == 1,
                 _ => false,
             }
         } else {
@@ -157,10 +164,28 @@ impl EditHistory {
                 last.scroll_after = new.scroll_after;
                 true
             },
+            // Merge consecutive single-line changes (continuous typing in the GUI)
+            (
+                Edit::ReplaceLines { start: s1, new_lines: n1, .. },
+                Edit::ReplaceLines { start: s2, old_lines: o2, new_lines: n2 }
+            ) if s1 == s2 && n1 == o2 && n2.len() == 1 => {
+                *n1 = n2.clone();
+                last.cursor_after = new.cursor_after;
+                last.scroll_after = new.scroll_after;
+                true
+            },
             _ => false,
         }
     }
     
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
     // Get the next operation to undo
     pub fn undo(&mut self) -> Option<EditOperation> {
         if let Some(operation) = self.undo_stack.pop() {
@@ -183,6 +208,34 @@ impl EditHistory {
 }
 
 impl Edit {
+    // Build a ReplaceLines edit from two buffer snapshots (None if nothing changed)
+    pub fn diff_lines(before: &[String], after: &[String]) -> Option<Edit> {
+        if before == after {
+            return None;
+        }
+
+        // Skip the lines both snapshots share at the start and at the end
+        let prefix = before
+            .iter()
+            .zip(after.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let max_suffix = before.len().min(after.len()) - prefix;
+        let suffix = before
+            .iter()
+            .rev()
+            .zip(after.iter().rev())
+            .take(max_suffix)
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        Some(Edit::ReplaceLines {
+            start: prefix,
+            old_lines: before[prefix..before.len() - suffix].to_vec(),
+            new_lines: after[prefix..after.len() - suffix].to_vec(),
+        })
+    }
+
     pub fn apply(&self, buffer: &mut Vec<String>) {
         use unicode_segmentation::UnicodeSegmentation;
         
@@ -269,6 +322,11 @@ impl Edit {
                         buffer.insert(start_line + i, line.to_string());
                     }
                 }
+            },
+            Edit::ReplaceLines { start, old_lines, new_lines } => {
+                let end = (start + old_lines.len()).min(buffer.len());
+                let start = (*start).min(end);
+                buffer.splice(start..end, new_lines.iter().cloned());
             },
         }
     }
@@ -362,6 +420,11 @@ impl Edit {
                         line_content.replace_range(byte_start..byte_end, old_text);
                     }
                 }
+            },
+            Edit::ReplaceLines { start, old_lines, new_lines } => {
+                let end = (start + new_lines.len()).min(buffer.len());
+                let start = (*start).min(end);
+                buffer.splice(start..end, old_lines.iter().cloned());
             },
         }
     }

@@ -131,6 +131,8 @@ fn build_line_galley(
     job
 }
 
+pub const SEARCH_INPUT_ID: &str = "search_bar_input";
+
 pub struct EditorPanel<'a> {
     state: &'a mut EditorState,
     accepts_input: bool,
@@ -157,11 +159,44 @@ impl<'a> EditorPanel<'a> {
 
         if was_search_active && !self.state.search_active {
             ui.ctx()
-                .memory_mut(|m| m.surrender_focus(egui::Id::new("search_bar_input")));
+                .memory_mut(|m| m.surrender_focus(egui::Id::new(SEARCH_INPUT_ID)));
         }
 
-        if self.accepts_input {
+        // The editor takes keyboard focus whenever no other widget has it,
+        // and keeps arrow keys / tab from moving focus to other widgets.
+        if self.accepts_input && ui.memory(|m| m.focused().is_none()) {
+            response.request_focus();
+        }
+        if response.has_focus() {
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    response.id,
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: false,
+                    },
+                )
+            });
+        }
+
+        let search_has_focus = ui
+            .ctx()
+            .memory(|m| m.has_focus(egui::Id::new(SEARCH_INPUT_ID)));
+        let cursor_before = self.state.cursor_pos;
+
+        if self.accepts_input && !search_has_focus {
             self.handle_input(ui, &response, editor_rect);
+        }
+
+        // Keep the cursor visible after it moved (not while dragging or wheel scrolling)
+        if self.state.scroll_to_cursor || self.state.cursor_pos != cursor_before {
+            if !self.state.is_dragging {
+                let visible_rows = ((editor_rect.height() / ROW_HEIGHT) as usize).max(1);
+                self.state.ensure_cursor_visible(Some(visible_rows));
+            }
+            self.state.scroll_to_cursor = false;
         }
 
         self.render_content(ui, editor_rect);
@@ -178,32 +213,56 @@ impl<'a> EditorPanel<'a> {
         ui.horizontal(|ui| {
             ui.label("🔍");
             let response = egui::TextEdit::singleline(&mut self.state.search_query)
-                .id(egui::Id::new("search_bar_input"))
+                .id(egui::Id::new(SEARCH_INPUT_ID))
                 .show(ui)
                 .response;
 
-            if !response.has_focus() && self.state.search_results.is_empty() {
+            if self.state.search_focus_requested {
                 response.request_focus();
+                self.state.search_focus_requested = false;
             }
-            if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                do_search = true;
-            }
-            if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                close_search = true;
+            // singleline TextEdit drops focus on Enter, so check lost_focus not has_focus
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if ui.input(|i| i.modifiers.shift) {
+                    do_prev = true;
+                } else {
+                    do_next = true;
+                }
+                response.request_focus();
             }
             if response.changed() {
                 do_search = true;
             }
-            if ui.button("Next").clicked() {
+            if ui.button("Next").on_hover_text("Enter").clicked() {
                 do_next = true;
             }
-            if ui.button("Prev").clicked() {
+            if ui.button("Prev").on_hover_text("Shift+Enter").clicked() {
                 do_prev = true;
             }
-            if ui.button("X").clicked() {
+
+            match &self.state.search_state {
+                Some(search_state) => {
+                    ui.label(format!(
+                        "{} of {}",
+                        search_state.current_match_idx + 1,
+                        search_state.matches.len()
+                    ));
+                }
+                None if !self.state.search_query.is_empty() => {
+                    ui.colored_label(Color32::from_rgb(230, 110, 90), "No matches");
+                }
+                None => {}
+            }
+
+            if ui.button("X").on_hover_text("Esc").clicked() {
                 close_search = true;
             }
         });
+
+        // egui clears focus on Escape before widgets run, so this can't check has_focus
+        if self.accepts_input && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            close_search = true;
+        }
 
         if close_search {
             self.state.clear_search();
@@ -223,8 +282,9 @@ impl<'a> EditorPanel<'a> {
     fn handle_input(&mut self, ui: &mut Ui, response: &Response, editor_rect: Rect) {
         // Mouse scroll (wheel)
         let mut scroll_lines: f32 = 0.0;
+        let hovered = ui.rect_contains_pointer(editor_rect);
         ui.input(|i| {
-            for event in &i.events {
+            for event in i.events.iter().filter(|_| hovered) {
                 if let egui::Event::MouseWheel { delta, .. } = event {
                     scroll_lines += delta.y;
                 }
@@ -279,11 +339,7 @@ impl<'a> EditorPanel<'a> {
             let cell_px = 8.4_f32; // same heuristic used elsewhere
             let max_cols = (text_area_px / cell_px) as usize;
 
-            if let Some(sel) = self.state.selection.take().filter(|s| s.is_active()) {
-                // Delete the active selection before inserting pasted text so we don't duplicate content.
-                self.delete_selection_inline(sel);
-            }
-
+            // insert_text replaces the active selection so we don't duplicate content.
             let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
 
             if max_cols > 0 {
@@ -394,9 +450,11 @@ impl<'a> EditorPanel<'a> {
             if has_shift {
                 self.start_selection_if_needed();
                 self.state.cursor_pos.line = self.state.cursor_pos.line.saturating_sub(20);
+                self.clamp_column();
                 self.update_selection();
             } else {
                 self.state.cursor_pos.line = self.state.cursor_pos.line.saturating_sub(20);
+                self.clamp_column();
                 self.state.selection = None;
             }
         }
@@ -405,15 +463,18 @@ impl<'a> EditorPanel<'a> {
             if has_shift {
                 self.start_selection_if_needed();
                 self.state.cursor_pos.line = (self.state.cursor_pos.line + 20).min(max_line);
+                self.clamp_column();
                 self.update_selection();
             } else {
                 self.state.cursor_pos.line = (self.state.cursor_pos.line + 20).min(max_line);
+                self.clamp_column();
                 self.state.selection = None;
             }
         }
 
         // Mouse click
         if response.clicked() {
+            response.request_focus();
             if let Some(pos) = response.interact_pointer_pos() {
                 let text_pos = self.screen_to_text(editor_rect, pos);
                 self.state.cursor_pos = text_pos;
@@ -554,54 +615,6 @@ impl<'a> EditorPanel<'a> {
         }
     }
 
-    fn delete_selection_inline(&mut self, selection: Selection) {
-        let (start, end) = selection.get_range();
-        let buffer = self.state.current_buffer_mut();
-
-        if start.line == end.line {
-            // Single line deletion
-            if let Some(line) = buffer.lines.get_mut(start.line) {
-                let line_chars = line.chars().count();
-                let start_col = start.column.min(line_chars);
-                let end_col = end.column.min(line_chars);
-
-                let byte_start = char_to_byte_idx(line, start_col);
-                let byte_end = char_to_byte_idx(line, end_col);
-                line.drain(byte_start..byte_end);
-            }
-        } else {
-            // Multi-line deletion: merge before/after parts
-            let before_text = if let Some(line) = buffer.lines.get(start.line) {
-                char_slice(line, 0, start.column.min(line.chars().count()))
-            } else {
-                String::new()
-            };
-
-            let after_text = if let Some(line) = buffer.lines.get(end.line) {
-                let gcount = line.chars().count();
-                char_slice(line, end.column.min(gcount), gcount)
-            } else {
-                String::new()
-            };
-
-            // Remove all lines in range
-            for _ in start.line..=end.line {
-                if start.line < buffer.lines.len() {
-                    buffer.lines.remove(start.line);
-                }
-            }
-
-            // Insert merged line
-            buffer
-                .lines
-                .insert(start.line, format!("{}{}", before_text, after_text));
-        }
-
-        // Move cursor to start of selection
-        self.state.cursor_pos = start;
-        self.state.mark_dirty();
-    }
-
     fn clamp_column(&mut self) {
         let line_len = self
             .state
@@ -695,22 +708,6 @@ impl<'a> EditorPanel<'a> {
             }
         }
     }
-}
-
-// Helper: get byte index for a given character index (0-based). Falls back to end-of-string.
-fn char_to_byte_idx(s: &str, char_idx: usize) -> usize {
-    s.char_indices()
-        .nth(char_idx)
-        .map(|(i, _)| i)
-        .unwrap_or(s.len())
-}
-
-// Helper: slice string by character indices [start, end)
-fn char_slice(s: &str, start: usize, end: usize) -> String {
-    s.chars()
-        .skip(start)
-        .take(end.saturating_sub(start))
-        .collect()
 }
 
 /// Convert a pixel X offset to a grapheme (character) column index within a line.

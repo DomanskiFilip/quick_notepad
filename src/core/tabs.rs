@@ -1,6 +1,7 @@
 use crate::tui::view::Buffer;
 use crate::tui::caret::Position;
 use crate::core::edit_history::EditHistory;
+use crate::core::selection::TextPosition;
 use std::fs;
 use std::io::Error;
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ pub struct Tab {
     pub cursor_pos: Position,
     pub has_unsaved_changes: bool,
     pub edit_history: EditHistory,
+    pub gui_cursor: TextPosition, // GUI caret (line/column), not persisted
 }
 
 impl Tab {
@@ -29,6 +31,7 @@ impl Tab {
             cursor_pos: Position::default(),
             has_unsaved_changes: false,
             edit_history: EditHistory::new(500),
+            gui_cursor: TextPosition { line: 0, column: 0 },
         }
     }
 
@@ -37,23 +40,51 @@ impl Tab {
     }
 
     pub fn from_file(path: &str) -> Result<Self, Error> {
-        let path_buf = std::fs::canonicalize(path)
-            .unwrap_or_else(|_| std::path::PathBuf::from(path));
+        let (full_path, display_name, friendly_filetype) = resolve_path(path);
 
-        let display_name = path_buf
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path_buf.to_string_lossy().into_owned());
-
-        let full_path = path_buf.to_string_lossy().into_owned();
-        let raw_ext = path_buf.extension().map(|ext| ext.to_string_lossy().into_owned());
-        let friendly_filetype = get_friendly_filetype(raw_ext);
-
-        let content = std::fs::read_to_string(&path_buf)?;
+        let content = std::fs::read_to_string(&full_path)?;
         let buffer = Buffer::from_string(content);
 
         Ok(Self::new(buffer, Some(display_name), Some(full_path), friendly_filetype))
     }
+
+    pub fn display_name(&self) -> String {
+        self.filename.clone().unwrap_or_else(|| "[No Name]".to_string())
+    }
+
+    // Write the buffer to `path` and point the tab at that file.
+    fn write_to(&mut self, path: &str) -> Result<(), Error> {
+        let (full_path, display_name, friendly_filetype) = resolve_path(path);
+        fs::write(&full_path, self.buffer.to_file_content())?;
+
+        // Update BOTH filepath (full path for saving) and filename (display name)
+        self.filepath = Some(full_path);
+        self.filename = Some(display_name);
+        // Deduce friendly filetype from extension and store it on the tab so
+        // syntax highlighting works consistently in both TUI and GUI.
+        self.filetype = friendly_filetype;
+        self.has_unsaved_changes = false;
+        Ok(())
+    }
+}
+
+// Turn a user given path into (full path, display name, friendly filetype).
+fn resolve_path(path: &str) -> (String, String, Option<String>) {
+    let path_buf = std::fs::canonicalize(path).unwrap_or_else(|_| {
+        // File doesn't exist yet — build absolute path manually
+        let mut current_dir = std::env::current_dir().unwrap_or_default();
+        current_dir.push(path);
+        current_dir
+    });
+
+    let full_path = path_buf.to_string_lossy().into_owned();
+    let display_name = path_buf
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| full_path.clone());
+    let raw_ext = path_buf.extension().map(|ext| ext.to_string_lossy().into_owned());
+
+    (full_path, display_name, get_friendly_filetype(raw_ext))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -251,6 +282,59 @@ impl TabManager {
         self.active_tab_index = tab_index;
         let _ = self.save_session();
         Ok(())
+    }
+
+    pub fn dirty_tabs(&self) -> Vec<usize> {
+        (0..self.tabs.len())
+            .filter(|&i| self.tabs[i].has_unsaved_changes)
+            .collect()
+    }
+
+    // The tab new_tab() will drop because the tab limit is reached.
+    pub fn tab_dropped_by_new_tab(&self) -> Option<usize> {
+        if self.tabs.len() >= self.max_tabs {
+            Some(self.tabs.len() - 1)
+        } else {
+            None
+        }
+    }
+
+    // Save a tab to its file. Returns false if it has no file yet (needs save as).
+    pub fn save_tab(&mut self, index: usize) -> Result<bool, Error> {
+        let Some(filepath) = self.tabs[index].filepath.clone() else {
+            return Ok(false);
+        };
+        self.tabs[index].write_to(&filepath)?;
+        let _ = self.save_session();
+        Ok(true)
+    }
+
+    pub fn save_tab_as(&mut self, index: usize, path: &str) -> Result<(), Error> {
+        let path = path.trim();
+        if path.is_empty() {
+            return Err(Error::new(std::io::ErrorKind::InvalidInput, "file name is empty"));
+        }
+        self.tabs[index].write_to(path)?;
+        let _ = self.save_session();
+        Ok(())
+    }
+
+    // Save the given tabs. Returns the first one that still needs a file name.
+    pub fn save_tabs(&mut self, indices: &[usize]) -> Result<Option<usize>, Error> {
+        for &index in indices {
+            if !self.tabs[index].has_unsaved_changes {
+                continue;
+            }
+            match self.save_tab(index) {
+                Ok(true) => {}
+                Ok(false) => return Ok(Some(index)),
+                Err(e) => {
+                    let name = self.tabs[index].display_name();
+                    return Err(Error::new(e.kind(), format!("{}: {}", name, e)));
+                }
+            }
+        }
+        Ok(None)
     }
 
     // Open a new blank tab, append at end, switch to it.

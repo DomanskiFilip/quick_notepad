@@ -5,52 +5,9 @@ use crate::tui::{
     terminal::Terminal,
 };
 use crate::core::selection::{Selection, TextPosition};
+use crate::core::search::{find_all_occurrences, find_closest_match, SearchState};
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
 use std::io::Error;
-
-// Stores all search match locations
-#[derive(Clone, Debug)]
-pub struct SearchMatch {
-    pub line: usize,
-    pub column: usize,
-    pub length: usize,
-}
-
-pub struct SearchState {
-    pub _query: String,
-    pub matches: Vec<SearchMatch>,
-    pub current_match_idx: usize,
-}
-
-impl SearchState {
-    pub fn new(_query: String, matches: Vec<SearchMatch>) -> Self {
-        Self {
-            _query,
-            matches,
-            current_match_idx: 0,
-        }
-    }
-    
-    pub fn next_match(&mut self) {
-        if !self.matches.is_empty() {
-            self.current_match_idx = (self.current_match_idx + 1) % self.matches.len();
-        }
-    }
-    
-    pub fn prev_match(&mut self) {
-        if !self.matches.is_empty() {
-            self.current_match_idx = if self.current_match_idx == 0 {
-                self.matches.len() - 1
-            } else {
-                self.current_match_idx - 1
-            };
-        }
-    }
-    
-    pub fn current_match(&self) -> Option<&SearchMatch> {
-        self.matches.get(self.current_match_idx)
-    }
-}
 
 pub fn search(view: &mut View, caret: &mut Caret) -> Result<(), Error> {
     // Show search prompt
@@ -144,54 +101,6 @@ fn perform_search(view: &mut View, caret: &mut Caret, query: &str) -> Result<(),
     move_to_current_match(view, caret)?;
 
     Ok(())
-}
-
-fn find_all_occurrences(lines: &[String], query: &str) -> Vec<SearchMatch> {
-    let query_lower = query.to_lowercase();
-    let mut matches = Vec::new();
-
-    for (line_idx, line) in lines.iter().enumerate() {
-        let line_lower = line.to_lowercase();
-        let mut start = 0;
-
-        while let Some(pos) = line_lower[start..].find(&query_lower) {
-            matches.push(SearchMatch {
-                line: line_idx,
-                column: start + pos,
-                length: query.len(),
-            });
-            start += pos + 1; // Move past this match to find next
-        }
-    }
-
-    matches
-}
-
-fn find_closest_match(matches: &[SearchMatch], line: usize, col: usize) -> usize {
-    let mut closest_idx = 0;
-    let mut min_distance = usize::MAX;
-
-    for (idx, m) in matches.iter().enumerate() {
-        // Calculate distance (prioritize line, then column)
-        let distance = if m.line == line {
-            if m.column >= col {
-                m.column - col
-            } else {
-                usize::MAX / 2 + (col - m.column)
-            }
-        } else if m.line > line {
-            (m.line - line) * 1000 + m.column
-        } else {
-            usize::MAX - (line - m.line) * 1000
-        };
-
-        if distance < min_distance {
-            min_distance = distance;
-            closest_idx = idx;
-        }
-    }
-
-    closest_idx
 }
 
 fn move_to_current_match(view: &mut View, caret: &mut Caret) -> Result<(), Error> {

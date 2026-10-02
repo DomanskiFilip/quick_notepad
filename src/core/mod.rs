@@ -7,3 +7,5 @@ pub mod buffer;
 pub mod updater; 
 pub mod syntax;
 pub mod graphemes;
+pub mod search;
+pub mod unsaved;

@@ -21,6 +21,16 @@ impl Buffer {
         
         Self { lines }
     }
+
+    // content written to disk, the trailing empty buffer lines are left out
+    pub fn to_file_content(&self) -> String {
+        let end = self
+            .lines
+            .iter()
+            .rposition(|line| !line.is_empty())
+            .map_or(0, |last_line| last_line + 1);
+        self.lines[..end].join("\n")
+    }
 }
 
 impl Default for Buffer {

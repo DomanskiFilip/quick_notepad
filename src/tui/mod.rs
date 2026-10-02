@@ -7,7 +7,8 @@ pub mod view;
 use crate::core::{
     actions::Action,
     shortcuts::Shortcuts,
-    tabs::{get_friendly_filetype, TabManager},
+    tabs::TabManager,
+    unsaved::{UnsavedChoice, UnsavedOutcome, UnsavedPrompt, UnsavedStep},
     updater::Updater,
 };
 use caret::Caret;
@@ -93,6 +94,13 @@ impl TerminalEditor {
     // Open a new blank tab and switch to it.
     fn new_tab(&mut self) -> Result<(), std::io::Error> {
         self.sync_tab_from_view();
+        // At the tab limit the last tab is dropped, ask first if it has unsaved changes.
+        if let Some(prompt) = UnsavedPrompt::for_new_tab(&self.tab_manager) {
+            if !self.resolve_unsaved(prompt)? {
+                return Ok(());
+            }
+            self.sync_tab_from_view();
+        }
         self.tab_manager.new_tab();
         self.sync_view_from_tab();
         self.caret.move_to(caret::Position::default())?;
@@ -316,7 +324,9 @@ impl TerminalEditor {
                                     }
                                 }
 
-                                Action::Save => self.save_file()?,
+                                Action::Save => {
+                                    self.save_file()?;
+                                }
                                 Action::CheckUpdate => self.check_and_install_update()?,
                                 Action::New => self.new_tab()?,
                                 Action::Search => self.view.search(&mut self.caret)?,
@@ -427,47 +437,7 @@ impl TerminalEditor {
                                     self.view.render(&self.caret)?;
                                 }
 
-                                Action::Quit => {
-                                    if self.tab_manager.current_tab().has_unsaved_changes {
-                                        self.view.show_prompt(
-                                            crate::tui::view::PromptKind::Error,
-                                            "Unsaved changes. Quit? (y/n)".to_string(),
-                                        );
-                                        self.view.needs_redraw = true;
-                                        self.view.render_if_needed(&self.caret, true)?;
-                                        Terminal::execute()?;
-
-                                        loop {
-                                            match read()? {
-                                                Event::Key(ev)
-                                                    if ev.kind == KeyEventKind::Press =>
-                                                {
-                                                    match ev.code {
-                                                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                                                            self.quit_program = true;
-                                                            break;
-                                                        }
-                                                        KeyCode::Char('n')
-                                                        | KeyCode::Char('N')
-                                                        | KeyCode::Esc => {
-                                                            self.view.clear_prompt();
-                                                            self.view.render_if_needed(
-                                                                &self.caret,
-                                                                true,
-                                                            )?;
-                                                            Terminal::execute()?;
-                                                            break;
-                                                        }
-                                                        _ => {}
-                                                    }
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    } else {
-                                        self.quit_program = true;
-                                    }
-                                }
+                                Action::Quit => self.request_quit()?,
 
                                 Action::Print => match event.code {
                                     KeyCode::Tab => {
@@ -563,158 +533,180 @@ impl TerminalEditor {
         Ok(())
     }
 
-    fn save_file(&mut self) -> Result<(), std::io::Error> {
-        use std::fs;
+    // Show a question in the footer and wait for a key press.
+    fn ask(&mut self, message: String) -> Result<KeyCode, std::io::Error> {
+        let is_dirty = self.tab_manager.current_tab().has_unsaved_changes;
+        self.view
+            .show_prompt(crate::tui::view::PromptKind::Error, message);
+        self.view.render_if_needed(&self.caret, is_dirty)?;
+        Terminal::execute()?;
 
-        let filepath_opt = self.tab_manager.current_tab().filepath.clone();
-
-        if let Some(filepath) = filepath_opt {
-            let last_line = self
-                .view
-                .buffer
-                .lines
-                .iter()
-                .rposition(|line| !line.is_empty())
-                .unwrap_or(0);
-            let content = self
-                .view
-                .buffer
-                .lines
-                .iter()
-                .take(last_line + 1)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            match fs::write(&filepath, content) {
-                Ok(_) => {
-                    self.tab_manager.current_tab_mut().has_unsaved_changes = false;
-                    self.sync_tab_from_view();
-                    let _ = self.tab_manager.save_session();
-                    self.view.needs_redraw = true;
-                    self.view.render_if_needed(&self.caret, false)?;
-                    Terminal::execute()?;
+        let code = loop {
+            if let Event::Key(event) = read()? {
+                if event.kind == KeyEventKind::Press {
+                    break event.code;
                 }
-                Err(e) => return Err(e),
             }
+        };
+
+        self.view.clear_prompt();
+        self.view.render_if_needed(&self.caret, is_dirty)?;
+        Terminal::execute()?;
+        Ok(code)
+    }
+
+    fn request_quit(&mut self) -> Result<(), std::io::Error> {
+        self.sync_tab_from_view();
+        self.quit_program = match UnsavedPrompt::for_quit(&self.tab_manager) {
+            Some(prompt) => self.resolve_unsaved(prompt)?,
+            None => true,
+        };
+        Ok(())
+    }
+
+    // Ask the unsaved changes questions in the footer.
+    // Returns true when the tabs may be closed (saved or changes discarded).
+    fn resolve_unsaved(&mut self, mut prompt: UnsavedPrompt) -> Result<bool, std::io::Error> {
+        loop {
+            let question = match prompt.step {
+                UnsavedStep::AskSave => format!(
+                    "{} (y) save | (n) don't save | Esc cancel",
+                    prompt.message()
+                ),
+                UnsavedStep::ConfirmDiscard => format!(
+                    "{} {} (y) yes | (n) go back",
+                    prompt.title(),
+                    prompt.message()
+                ),
+            };
+            let choice = match (prompt.step, self.ask(question)?) {
+                (_, KeyCode::Esc) => UnsavedChoice::Cancel,
+                (UnsavedStep::AskSave, KeyCode::Char('y' | 'Y')) => UnsavedChoice::Save,
+                (UnsavedStep::AskSave, KeyCode::Char('n' | 'N')) => UnsavedChoice::DontSave,
+                (UnsavedStep::AskSave, _) => continue,
+                (UnsavedStep::ConfirmDiscard, KeyCode::Char('y' | 'Y')) => {
+                    UnsavedChoice::ConfirmDiscard
+                }
+                (UnsavedStep::ConfirmDiscard, _) => UnsavedChoice::GoBack,
+            };
+            match prompt.choose(choice) {
+                UnsavedOutcome::Ask => continue,
+                UnsavedOutcome::Save => return self.save_tabs(&prompt.tabs),
+                UnsavedOutcome::Discard => return Ok(true),
+                UnsavedOutcome::Cancel => return Ok(false),
+            }
+        }
+    }
+
+    // Save the given tabs, asking for a file name where one is missing.
+    fn save_tabs(&mut self, tabs: &[usize]) -> Result<bool, std::io::Error> {
+        loop {
+            self.sync_tab_from_view();
+            match self.tab_manager.save_tabs(tabs) {
+                Ok(None) => return Ok(true),
+                Ok(Some(index)) => {
+                    if self.tab_manager.active_tab_index != index {
+                        self.switch_tab(index + 1)?;
+                    }
+                    if !self.save_file()? {
+                        return Ok(false);
+                    }
+                }
+                Err(e) => return self.show_save_result(Err(e)),
+            }
+        }
+    }
+
+    // Save the current tab. Returns true if the file was written.
+    fn save_file(&mut self) -> Result<bool, std::io::Error> {
+        self.sync_tab_from_view();
+        let index = self.tab_manager.active_tab_index;
+
+        let result = if self.tab_manager.current_tab().filepath.is_some() {
+            self.tab_manager.save_tab(index).map(|_| ())
         } else {
-            // Save-as flow
-            self.view.show_prompt(
-                crate::tui::view::PromptKind::SaveAs,
-                "Save as: ".to_string(),
-            );
-            self.view.needs_redraw = true;
+            match self.ask_filename()? {
+                Some(filename) => self.tab_manager.save_tab_as(index, &filename),
+                None => return Ok(false),
+            }
+        };
+        self.show_save_result(result)
+    }
+
+    fn show_save_result(&mut self, result: Result<(), std::io::Error>) -> Result<bool, std::io::Error> {
+        let saved = result.is_ok();
+        match result {
+            Ok(_) => {
+                let tab = self.tab_manager.current_tab();
+                let message = format!("Saved {}", tab.display_name());
+                let (filename, filetype) = (tab.filename.clone(), tab.filetype.clone());
+                self.view.set_filename_and_filetype(filename, filetype);
+                self.view
+                    .show_prompt(crate::tui::view::PromptKind::SearchInfo, message);
+            }
+            Err(e) => {
+                self.view.show_prompt(
+                    crate::tui::view::PromptKind::Error,
+                    format!("Failed to save: {}", e),
+                );
+            }
+        }
+        self.view.render_if_needed(
+            &self.caret,
+            self.tab_manager.current_tab().has_unsaved_changes,
+        )?;
+        Terminal::execute()?;
+        Ok(saved)
+    }
+
+    // Save-as prompt. Returns None if cancelled.
+    fn ask_filename(&mut self) -> Result<Option<String>, std::io::Error> {
+        self.view.show_prompt(
+            crate::tui::view::PromptKind::SaveAs,
+            "Save as: ".to_string(),
+        );
+        self.view.render_if_needed(
+            &self.caret,
+            self.tab_manager.current_tab().has_unsaved_changes,
+        )?;
+        Terminal::execute()?;
+
+        let filename = loop {
+            let Event::Key(event) = read()? else { continue };
+            if event.kind != KeyEventKind::Press {
+                continue;
+            }
+            match event.code {
+                KeyCode::Char(c)
+                    if !event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+                {
+                    self.view.append_prompt_char(c)
+                }
+                KeyCode::Backspace => self.view.backspace_prompt(),
+                KeyCode::Enter => {
+                    let input = self
+                        .view
+                        .get_prompt()
+                        .map(|(_, _, input)| input.trim().to_string())
+                        .unwrap_or_default();
+                    break (!input.is_empty()).then_some(input);
+                }
+                KeyCode::Esc => break None,
+                _ => {}
+            }
             self.view.render_if_needed(
                 &self.caret,
                 self.tab_manager.current_tab().has_unsaved_changes,
             )?;
             Terminal::execute()?;
+        };
 
-            loop {
-                match read()? {
-                    Event::Key(event) if event.kind == KeyEventKind::Press => {
-                        match event.code {
-                            KeyCode::Char(c) => self.view.append_prompt_char(c),
-                            KeyCode::Backspace => self.view.backspace_prompt(),
-                            KeyCode::Enter => {
-                                if let Some((_, _, input)) = self.view.get_prompt() {
-                                    let filename = input.to_string();
-                                    self.view.clear_prompt();
-                                    if filename.is_empty() {
-                                        break;
-                                    }
-
-                                    let path_buf =
-                                        std::fs::canonicalize(&filename).unwrap_or_else(|_| {
-                                            let mut d = std::env::current_dir().unwrap_or_default();
-                                            d.push(&filename);
-                                            d
-                                        });
-
-                                    let full_path = path_buf.to_string_lossy().into_owned();
-                                    let display_name = path_buf
-                                        .file_name()
-                                        .map(|n| n.to_string_lossy().into_owned())
-                                        .unwrap_or_else(|| filename.clone());
-                                    let friendly_filetype = get_friendly_filetype(
-                                        path_buf
-                                            .extension()
-                                            .map(|e| e.to_string_lossy().into_owned()),
-                                    );
-
-                                    self.tab_manager.current_tab_mut().filename =
-                                        Some(display_name.clone());
-                                    self.tab_manager.current_tab_mut().filepath =
-                                        Some(full_path.clone());
-                                    self.tab_manager.current_tab_mut().filetype =
-                                        friendly_filetype.clone();
-                                    self.view.set_filename_and_filetype(
-                                        Some(display_name),
-                                        friendly_filetype,
-                                    );
-
-                                    let last_line = self
-                                        .view
-                                        .buffer
-                                        .lines
-                                        .iter()
-                                        .rposition(|line| !line.is_empty())
-                                        .unwrap_or(0);
-                                    let content = self
-                                        .view
-                                        .buffer
-                                        .lines
-                                        .iter()
-                                        .take(last_line + 1)
-                                        .cloned()
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-
-                                    match fs::write(&full_path, content) {
-                                        Ok(_) => {
-                                            self.tab_manager
-                                                .current_tab_mut()
-                                                .has_unsaved_changes = false;
-                                            self.sync_tab_from_view();
-                                            let _ = self.tab_manager.save_session();
-                                            self.view.needs_redraw = true;
-                                            self.view.render_if_needed(&self.caret, false)?;
-                                            Terminal::execute()?;
-                                        }
-                                        Err(e) => {
-                                            self.view.show_prompt(
-                                                crate::tui::view::PromptKind::Error,
-                                                format!("Failed to save: {}", e),
-                                            );
-                                            self.view.render_if_needed(&self.caret, true)?;
-                                            Terminal::execute()?;
-                                            return Err(e);
-                                        }
-                                    }
-                                }
-                                break;
-                            }
-                            KeyCode::Esc => {
-                                self.view.clear_prompt();
-                                self.view.render_if_needed(
-                                    &self.caret,
-                                    self.tab_manager.current_tab().has_unsaved_changes,
-                                )?;
-                                Terminal::execute()?;
-                                break;
-                            }
-                            _ => {}
-                        }
-                        self.view.render_if_needed(
-                            &self.caret,
-                            self.tab_manager.current_tab().has_unsaved_changes,
-                        )?;
-                        Terminal::execute()?;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Ok(())
+        self.view.clear_prompt();
+        self.view.render_if_needed(
+            &self.caret,
+            self.tab_manager.current_tab().has_unsaved_changes,
+        )?;
+        Terminal::execute()?;
+        Ok(filename)
     }
 }
