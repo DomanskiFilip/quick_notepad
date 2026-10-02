@@ -4,15 +4,23 @@ use crate::tui::{
     caret::{ Position, Caret },
 };
 use crossterm::{
-    event::{EnableMouseCapture, DisableMouseCapture},
+    event::{
+        EnableMouseCapture, DisableMouseCapture, KeyboardEnhancementFlags,
+        PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    },
     cursor::{ DisableBlinking, EnableBlinking, Hide, Show },
     queue,
     terminal::{ 
         Clear, ClearType, DisableLineWrap, disable_raw_mode, 
-        enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen 
+        enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen,
+        supports_keyboard_enhancement,
     }
 };
 use std::io::{ stdout, Error, Write };
+use std::sync::atomic::{ AtomicBool, Ordering };
+
+// true when the terminal reports keys like Ctrl+1 (kitty keyboard protocol)
+static KEYBOARD_ENHANCED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Copy, Clone)]
 pub struct Size {
@@ -27,6 +35,13 @@ impl Terminal {
     pub fn initialize(view: &mut View, caret: &mut Caret) -> Result<(), Error> {
         enable_raw_mode()?;
         queue!(stdout(), EnterAlternateScreen, DisableLineWrap, Hide, EnableMouseCapture )?;
+
+        // Most terminals send nothing usable for Ctrl+number (Ctrl+1 is just "1"),
+        // ask terminals that support it to report those keys properly.
+        if supports_keyboard_enhancement().unwrap_or(false) {
+            queue!(stdout(), PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES))?;
+            KEYBOARD_ENHANCED.store(true, Ordering::Relaxed);
+        }
         Self::clear_screen()?;
         
         queue!(stdout(), Caret::CARET_SETTINGS.style)?;
@@ -42,6 +57,9 @@ impl Terminal {
 
     pub fn terminate() -> Result<(), Error> {
         Caret::reset_caret_color()?;
+        if KEYBOARD_ENHANCED.load(Ordering::Relaxed) {
+            queue!(stdout(), PopKeyboardEnhancementFlags)?;
+        }
         queue!(stdout(), DisableBlinking, Show, LeaveAlternateScreen, DisableMouseCapture)?;
         disable_raw_mode()?;
         Self::execute()?;
