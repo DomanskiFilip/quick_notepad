@@ -70,7 +70,7 @@ impl TerminalEditor {
     fn sync_view_from_tab(&mut self) {
         let tab = self.tab_manager.current_tab();
         self.view.buffer = tab.buffer.clone();
-        self.view.scroll_offset = tab.scroll_offset;
+        self.view.set_scroll_line(tab.scroll_offset);
         self.view.filename = tab.filename.clone();
         self.view.filetype = tab.filetype.clone();
         self.view.selection = None;
@@ -295,7 +295,7 @@ impl TerminalEditor {
                                         self.tab_manager.current_tab_mut().edit_history.undo()
                                     {
                                         operation.edit.reverse(&mut self.view.buffer.lines);
-                                        self.view.scroll_offset = operation.scroll_before;
+                                        self.view.set_scroll_line(operation.scroll_before);
                                         self.view.needs_redraw = true;
                                         self.view.render_if_needed(
                                             &self.caret,
@@ -312,7 +312,7 @@ impl TerminalEditor {
                                         self.tab_manager.current_tab_mut().edit_history.redo()
                                     {
                                         operation.edit.apply(&mut self.view.buffer.lines);
-                                        self.view.scroll_offset = operation.scroll_after;
+                                        self.view.set_scroll_line(operation.scroll_after);
                                         self.view.needs_redraw = true;
                                         self.view.render_if_needed(
                                             &self.caret,

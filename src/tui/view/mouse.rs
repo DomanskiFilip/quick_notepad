@@ -5,6 +5,7 @@ use super::{
 };
 use crate::core::graphemes::*;
 use crate::core::selection::{Selection, TextPosition};
+use crate::core::wrap;
 use crate::tui::caret::{Caret, Position};
 use crate::tui::terminal::Terminal;
 use std::io::Error;
@@ -118,7 +119,7 @@ pub fn handle_triple_click(
         };
         let end_pos = TextPosition {
             line: pos.line,
-            column: line.len(),
+            column: grapheme_len(line),
         };
 
         view.selection = Some(Selection {
@@ -177,33 +178,32 @@ fn find_word_boundaries(line: &str, col: usize) -> (usize, usize) {
     (start, end)
 }
 
-// Scroll the view UP
-pub fn scroll_up(view: &mut View, caret: &mut Caret, lines: usize) -> Result<(), Error> {
-    if view.scroll_offset == 0 {
+// Scroll the view by visual rows (negative = up). The caret keeps its place on screen.
+fn scroll_rows(view: &mut View, caret: &mut Caret, delta: isize) -> Result<(), Error> {
+    let top = wrap::scroll_by(
+        &view.buffer.lines,
+        view.wrap_cols,
+        view.top(),
+        delta,
+        view.wrap_rows,
+    );
+    if top == view.top() {
         return Ok(());
     }
-    view.scroll_offset = view.scroll_offset.saturating_sub(lines);
+    view.set_top(top);
     view.needs_redraw = true;
     view.render_if_needed(caret, false)?;
-    // Keep caret clamped to the visible area
     caret.clamp_to_bounds()?;
     Terminal::execute()?;
     Ok(())
 }
 
+// Scroll the view UP
+pub fn scroll_up(view: &mut View, caret: &mut Caret, lines: usize) -> Result<(), Error> {
+    scroll_rows(view, caret, -(lines as isize))
+}
+
 // Scroll the view DOWN
 pub fn scroll_down(view: &mut View, caret: &mut Caret, lines: usize) -> Result<(), Error> {
-    let size = Terminal::get_size()?;
-    let visible_rows = size.height.saturating_sub(Position::HEADER + 1) as usize;
-    let max_scroll = view.buffer.lines.len().saturating_sub(visible_rows);
-
-    if view.scroll_offset >= max_scroll {
-        return Ok(());
-    }
-    view.scroll_offset = (view.scroll_offset + lines).min(max_scroll);
-    view.needs_redraw = true;
-    view.render_if_needed(caret, false)?;
-    caret.clamp_to_bounds()?;
-    Terminal::execute()?;
-    Ok(())
+    scroll_rows(view, caret, lines as isize)
 }

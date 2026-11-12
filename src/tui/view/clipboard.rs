@@ -3,8 +3,7 @@ use super::View;
 use crate::core::edit_history::{Edit, EditOperation};
 use crate::core::graphemes::*;
 use crate::core::selection::TextPosition;
-use crate::tui::caret::{Caret, Position};
-use crate::tui::terminal::Terminal;
+use crate::tui::caret::Caret;
 use std::io::Error;
 
 pub fn copy_selection(view: &View) -> Result<(), Error> {
@@ -47,25 +46,10 @@ pub fn paste_from_clipboard(
         delete_selection(view, caret)?;
     }
 
-    // Get text from clipboard
+    // Get text from clipboard. Long lines are soft wrapped on screen, so paste them as they are.
     if let Ok(mut clipboard) = arboard::Clipboard::new() {
         if let Ok(text) = clipboard.get_text() {
-            let normalized = normalize_line_endings(&text);
-
-            // Determine terminal width for wrapping (columns available for text)
-            if let Ok(size) = Terminal::get_size() {
-                // Reserve margin for left margin and a right-side safety column
-                let max_cols = size.width.saturating_sub(Position::MARGIN + 1) as usize;
-
-                if max_cols > 0 {
-                    let wrapped = wrap_text_to_width(&normalized, max_cols);
-                    let joined = wrapped.join("\n");
-                    return insert_text_at_cursor(view, caret, &joined);
-                }
-            }
-
-            // Fallback: insert without wrapping
-            return insert_text_at_cursor(view, caret, &normalized);
+            return insert_text_at_cursor(view, caret, &normalize_line_endings(&text));
         }
     }
 
@@ -93,11 +77,7 @@ pub fn delete_selection(
         delete_range(view, start, end)?;
 
         // Move cursor to start of deleted range
-        let (screen_x, screen_y) = super::helpers::text_to_screen_pos(view, start);
-        caret.move_to(Position {
-            x: screen_x,
-            y: screen_y,
-        })?;
+        super::helpers::place_caret(view, caret, start)?;
 
         view.render(caret)?;
 
@@ -220,128 +200,65 @@ fn insert_text_at_cursor(
     caret: &mut Caret,
     text: &str,
 ) -> Result<Option<EditOperation>, Error> {
-    use crate::tui::caret::Position;
+    if text.is_empty() {
+        return Ok(None);
+    }
 
-    let pos = caret.get_position();
-    let cursor_before = pos;
+    let cursor_before = caret.get_position();
     let scroll_before = view.scroll_offset;
-
-    let buffer_line_idx = (pos.y.saturating_sub(Position::HEADER)) as usize + view.scroll_offset;
-    let char_pos = (pos.x as usize).saturating_sub(Position::MARGIN as usize);
+    let pos = super::helpers::get_current_text_pos(view, caret);
 
     // Ensure line exists
-    while view.buffer.lines.len() <= buffer_line_idx {
+    while view.buffer.lines.len() <= pos.line {
         view.buffer.lines.push(String::new());
     }
 
-    // Check if text contains newlines
-    if text.contains('\n') {
-        // Multi-line paste
-        let lines: Vec<&str> = text.split('\n').collect();
+    let current_line = &view.buffer.lines[pos.line];
+    let grapheme_pos = pos.column.min(grapheme_len(current_line));
+    let (before, after) = split_at_grapheme(current_line, grapheme_pos);
+    let (before, after) = (before.to_string(), after.to_string());
 
-        if lines.is_empty() {
-            return Ok(None);
+    // Split the pasted text into buffer lines, the remainder of the cursor line goes after it
+    let pasted: Vec<&str> = text.split('\n').collect();
+    let last = pasted.len() - 1;
+    let mut new_lines: Vec<String> = pasted.iter().map(|l| l.to_string()).collect();
+    new_lines[0].insert_str(0, &before);
+    let final_col = grapheme_len(&new_lines[last]);
+    new_lines[last].push_str(&after);
+
+    view.buffer
+        .lines
+        .splice(pos.line..=pos.line, new_lines);
+
+    let final_pos = TextPosition {
+        line: pos.line + last,
+        column: final_col,
+    };
+    super::helpers::place_caret(view, caret, final_pos)?;
+    view.render(caret)?;
+
+    let edit = if last == 0 {
+        Edit::InsertText {
+            line: pos.line,
+            column: grapheme_pos,
+            text: text.to_string(),
         }
-
-        // Split current line at cursor (using grapheme position)
-        let current_line = &view.buffer.lines[buffer_line_idx];
-        let grapheme_count = grapheme_len(current_line);
-        let grapheme_pos = char_pos.min(grapheme_count);
-
-        let (before, after) = split_at_grapheme(current_line, grapheme_pos);
-        let before = before.to_string();
-        let after = after.to_string();
-
-        // Update first line: before + first pasted line
-        view.buffer.lines[buffer_line_idx] = format!("{}{}", before, lines[0]);
-
-        // Insert all middle and last lines
-        let mut insert_idx = buffer_line_idx.saturating_add(1);
-        
-        for (i, line) in lines.iter().enumerate().skip(1) {
-            let mut line_content = line.to_string();
-            
-            // Handle the 'after' suffix on the last line
-            if i == lines.len() - 1 {
-                line_content.push_str(&after);
-            }
-        
-            if insert_idx <= view.buffer.lines.len() {
-                view.buffer.lines.insert(insert_idx, line_content);
-            } else {
-                view.buffer.lines.push(line_content);
-            }
-            
-            insert_idx = insert_idx.saturating_add(1);
-        }
-
-        // Calculate final position (in graphemes)
-        let final_buffer_line = buffer_line_idx + lines.len() - 1;
-        let final_buffer_col = grapheme_len(lines[lines.len() - 1]);
-
-        // Update scroll_offset
-        let size = Terminal::get_size()?;
-        let visible_rows = size.height.saturating_sub(Position::HEADER + 1) as usize;
-
-        if final_buffer_line >= view.scroll_offset + visible_rows {
-            view.scroll_offset = final_buffer_line.saturating_sub(visible_rows / 2);
-        } else if final_buffer_line < view.scroll_offset {
-            view.scroll_offset = final_buffer_line;
-        }
-
-        view.render(caret)?;
-
-        let final_text_pos = TextPosition {
-            line: final_buffer_line,
-            column: final_buffer_col,
-        };
-        let (screen_x, screen_y) = super::helpers::text_to_screen_pos(view, final_text_pos);
-        caret.move_to(Position {
-            x: screen_x,
-            y: screen_y,
-        })?;
-
-        // Create edit operation for multi-line paste
-        Ok(Some(EditOperation {
-            edit: Edit::ReplaceRange {
-                start_line: buffer_line_idx,
-                start_column: grapheme_pos,
-                end_line: buffer_line_idx,
-                end_column: grapheme_pos,
-                old_text: String::new(),
-                new_text: text.to_string(),
-            },
-            cursor_before,
-            cursor_after: caret.get_position(),
-            scroll_before,
-            scroll_after: view.scroll_offset,
-        }))
     } else {
-        // Single line paste
-        let line = &mut view.buffer.lines[buffer_line_idx];
-        let grapheme_count = grapheme_len(line);
-        let grapheme_pos = char_pos.min(grapheme_count);
+        Edit::ReplaceRange {
+            start_line: pos.line,
+            start_column: grapheme_pos,
+            end_line: pos.line,
+            end_column: grapheme_pos,
+            old_text: String::new(),
+            new_text: text.to_string(),
+        }
+    };
 
-        insert_at_grapheme(line, grapheme_pos, text);
-
-        view.render(caret)?;
-
-        let size = Terminal::get_size()?;
-        let text_grapheme_len = grapheme_len(text);
-        let new_x = (pos.x + text_grapheme_len as u16).min(size.width.saturating_sub(1));
-        caret.move_to(Position { x: new_x, y: pos.y })?;
-
-        // Create edit operation for single-line paste
-        Ok(Some(EditOperation {
-            edit: Edit::InsertText {
-                line: buffer_line_idx,
-                column: grapheme_pos,
-                text: text.to_string(),
-            },
-            cursor_before,
-            cursor_after: caret.get_position(),
-            scroll_before,
-            scroll_after: view.scroll_offset,
-        }))
-    }
+    Ok(Some(EditOperation {
+        edit,
+        cursor_before,
+        cursor_after: caret.get_position(),
+        scroll_before,
+        scroll_after: view.scroll_offset,
+    }))
 }

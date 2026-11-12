@@ -9,3 +9,4 @@ pub mod syntax;
 pub mod graphemes;
 pub mod search;
 pub mod unsaved;
+pub mod wrap;

@@ -10,6 +10,7 @@ pub use crate::core::buffer::Buffer;
 use crate::core::{
     edit_history::EditOperation,
     selection::{Selection, TextPosition},
+    wrap::{self, RowPos},
 };
 use crate::tui::{caret::Caret, terminal::Terminal};
 pub use crate::core::search::SearchState;
@@ -34,7 +35,12 @@ pub struct View {
     pub buffer: Buffer,
     pub selection: Option<Selection>,
     pub is_dragging: bool,
+    // first visible buffer line, and how many of its wrapped rows are scrolled past
     pub scroll_offset: usize,
+    pub scroll_row: usize,
+    // text area size the lines are wrapped to (updated on resize)
+    pub wrap_cols: usize,
+    pub wrap_rows: usize,
     pub filename: Option<String>,
     pub filetype: Option<String>,
     pub prompt_since: Option<std::time::Instant>,
@@ -52,6 +58,9 @@ impl View {
         Self {
             buffer,
             scroll_offset: 0,
+            scroll_row: 0,
+            wrap_cols: text_area_size().0,
+            wrap_rows: text_area_size().1,
             filename: None,
             filetype: None,
             prompt_since: None,
@@ -367,40 +376,65 @@ impl View {
     }
 
     pub fn handle_resize(&mut self, caret: &mut Caret, is_dirty: bool) -> Result<(), Error> {
-        caret.clamp_to_bounds()?;
+        // Work out where the caret is with the old layout, then re-wrap and put it back
+        let pos = helpers::get_current_text_pos(self, caret);
+        // Keep the same text at the top of the screen
+        let top_col = wrap::row_starts(self.line(self.scroll_offset), self.wrap_cols)
+            .get(self.scroll_row)
+            .copied()
+            .unwrap_or(0);
+        let (cols, rows) = text_area_size();
+        self.wrap_cols = cols;
+        self.wrap_rows = rows;
+        let top_row = wrap::row_of(&wrap::row_starts(self.line(self.scroll_offset), cols), top_col);
+        self.set_top(RowPos {
+            line: self.scroll_offset,
+            row: top_row,
+        });
+        helpers::place_caret(self, caret, pos)?;
+        Terminal::clear_screen()?;
         self.needs_redraw = true;
         self.render_if_needed(caret, is_dirty)?;
         caret.move_to(caret.get_position())?;
         Ok(())
     }
 
-    // Helper for clamping cursor to line length
-    pub(in crate::tui::view) fn clamp_cursor_to_line(
-        &self,
-        caret: &mut Caret,
-    ) -> Result<(), Error> {
-        use crate::tui::caret::Position;
-
-        let pos = caret.get_position();
-        let buffer_line_idx =
-            (pos.y.saturating_sub(Position::HEADER)) as usize + self.scroll_offset;
-
-        if let Some(line) = self.buffer.lines.get(buffer_line_idx) {
-            let line_end = Position::MARGIN + line.len() as u16;
-            let size = Terminal::get_size()?;
-            let max_x = line_end.min(size.width - 1);
-
-            if pos.x > max_x {
-                caret.move_to(Position { x: max_x, y: pos.y })?;
-            } else {
-                caret.move_to(pos)?;
-            }
-        } else {
-            caret.move_to(pos)?;
+    // Viewport top as a visual row
+    pub(in crate::tui) fn top(&self) -> RowPos {
+        RowPos {
+            line: self.scroll_offset,
+            row: self.scroll_row,
         }
-
-        Ok(())
     }
+
+    pub(in crate::tui) fn set_top(&mut self, top: RowPos) {
+        let top = wrap::clamp_row(&self.buffer.lines, self.wrap_cols, top);
+        self.scroll_offset = top.line;
+        self.scroll_row = top.row;
+    }
+
+    // Scroll so a buffer line is the first one on screen (used by undo/redo and tabs)
+    pub fn set_scroll_line(&mut self, line: usize) {
+        self.scroll_offset = line;
+        self.scroll_row = 0;
+    }
+
+    pub(in crate::tui) fn line(&self, idx: usize) -> &str {
+        self.buffer.lines.get(idx).map(String::as_str).unwrap_or("")
+    }
+}
+
+// Columns and rows available for text. One column is kept free on the right
+// so the caret has room after the last character of a full row.
+fn text_area_size() -> (usize, usize) {
+    use crate::tui::caret::Position;
+    let size = Terminal::get_size().unwrap_or(crate::tui::terminal::Size {
+        width: 80,
+        height: 24,
+    });
+    let cols = size.width.saturating_sub(Position::MARGIN + 1).max(1) as usize;
+    let rows = size.height.saturating_sub(Position::HEADER + 1).max(1) as usize;
+    (cols, rows)
 }
 
 impl Default for View {
@@ -408,6 +442,9 @@ impl Default for View {
         Self {
             buffer: Buffer::default(),
             scroll_offset: 0,
+            scroll_row: 0,
+            wrap_cols: text_area_size().0,
+            wrap_rows: text_area_size().1,
             filename: None,
             filetype: None,
             prompt_since: None,
@@ -422,66 +459,82 @@ impl Default for View {
     }
 }
 
-// Helper functions used across modules
+// Helper functions used across modules.
+// The caret lives in screen coordinates; these map it to buffer positions through the wrapped layout.
 pub mod helpers {
     use super::*;
     use crate::tui::caret::Position;
+    use unicode_segmentation::UnicodeSegmentation;
+
+    // Column on visual row `rp` under screen column `x` (relative to the text area).
+    pub fn col_at_x(view: &View, rp: RowPos, x: usize) -> usize {
+        wrap::col_at_x(view.line(rp.line), view.wrap_cols, rp.row, x)
+    }
+
+    pub fn text_pos_at(view: &View, screen_x: u16, screen_y: u16) -> TextPosition {
+        let y = (screen_y.saturating_sub(Position::HEADER) as usize).min(view.wrap_rows - 1);
+        let rp = wrap::step_forward(&view.buffer.lines, view.wrap_cols, view.top(), y);
+        let x = screen_x.saturating_sub(Position::MARGIN) as usize;
+        TextPosition {
+            line: rp.line,
+            column: col_at_x(view, rp, x),
+        }
+    }
 
     pub fn screen_to_text_pos(
         view: &View,
         screen_x: u16,
         screen_y: u16,
     ) -> Result<TextPosition, Error> {
-        let size = Terminal::get_size()?;
-
-        // Clamp to valid screen area (don't include footer)
-        let y = screen_y.min(size.height.saturating_sub(2));
-
-        // Adjust for margin
-        let x = screen_x.saturating_sub(Position::MARGIN);
-
-        // Convert screen Y to buffer line index (accounting for header and scroll)
-        let line_idx = if y >= Position::HEADER {
-            (y - Position::HEADER) as usize + view.scroll_offset
-        } else {
-            0
-        };
-
-        // Clamp to actual line length
-        let max_col = if let Some(line) = view.buffer.lines.get(line_idx) {
-            line.len()
-        } else {
-            0
-        };
-
-        Ok(TextPosition {
-            line: line_idx,
-            column: (x as usize).min(max_col),
-        })
+        Ok(text_pos_at(view, screen_x, screen_y))
     }
 
     pub fn text_to_screen_pos(view: &View, pos: TextPosition) -> (u16, u16) {
-        // Convert buffer line index to screen Y (accounting for header and scroll)
-        let screen_y = if pos.line >= view.scroll_offset {
-            Position::HEADER + (pos.line - view.scroll_offset) as u16
-        } else {
-            Position::HEADER
+        let (row, x) = wrap::locate(view.line(pos.line), view.wrap_cols, pos.column);
+        let target = RowPos {
+            line: pos.line,
+            row,
         };
 
-        let screen_x = (pos.column as u16) + Position::MARGIN;
-        (screen_x, screen_y)
+        let rows = view.wrap_rows;
+        let y = match wrap::rows_between(&view.buffer.lines, view.wrap_cols, view.top(), target, rows) {
+            Some(n) if n < rows => n,
+            Some(_) => rows - 1,
+            None => 0,
+        };
+
+        (
+            Position::MARGIN + x.min(view.wrap_cols) as u16,
+            Position::HEADER + y as u16,
+        )
     }
 
     pub fn get_current_text_pos(view: &View, caret: &Caret) -> TextPosition {
         let pos = caret.get_position();
-        let buffer_line_idx =
-            (pos.y.saturating_sub(Position::HEADER)) as usize + view.scroll_offset;
-        let char_pos = (pos.x as usize).saturating_sub(Position::MARGIN as usize);
+        text_pos_at(view, pos.x, pos.y)
+    }
 
-        TextPosition {
-            line: buffer_line_idx,
-            column: char_pos,
+    // Put the caret on a buffer position, scrolling just enough to keep it on screen.
+    pub fn place_caret(view: &mut View, caret: &mut Caret, pos: TextPosition) -> Result<(), Error> {
+        let line = pos.line.min(view.buffer.lines.len().saturating_sub(1));
+        let pos = TextPosition {
+            line,
+            column: pos.column.min(view.line(line).graphemes(true).count()),
+        };
+        let target = wrap::row_pos_of(&view.buffer.lines, view.wrap_cols, pos);
+        let top = wrap::ensure_visible(
+            &view.buffer.lines,
+            view.wrap_cols,
+            view.top(),
+            view.wrap_rows,
+            target,
+        );
+        if top != view.top() {
+            view.set_top(top);
+            view.needs_redraw = true;
         }
+        let (x, y) = text_to_screen_pos(view, pos);
+        caret.move_to(Position { x, y })
     }
 }
 

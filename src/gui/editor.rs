@@ -1,13 +1,15 @@
 // editor.rs responsible for rendering the text editor panel in GUI mode, handling input and selection logic
 use super::state::EditorState;
-use crate::core::graphemes::wrap_text_to_width;
+use crate::core::graphemes::grapheme_len;
 use crate::core::selection::{Selection, TextPosition};
+use crate::core::syntax::Token;
+use crate::core::wrap::{self, RowPos};
 use crate::gui::syntax::{SyntaxHighlighter, TokenTypeExt};
 use egui::{
     text::{LayoutJob, TextFormat},
     Color32, FontFamily, FontId, Pos2, Rect, Response, Sense, Stroke, Ui,
 };
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
 
 const ROW_HEIGHT: f32 = 20.0;
 const MARGIN_WIDTH: f32 = 40.0;
@@ -136,6 +138,7 @@ pub const SEARCH_INPUT_ID: &str = "search_bar_input";
 pub struct EditorPanel<'a> {
     state: &'a mut EditorState,
     accepts_input: bool,
+    cell_px: f32, // width of one monospace column, measured from the font
 }
 
 impl<'a> EditorPanel<'a> {
@@ -143,6 +146,7 @@ impl<'a> EditorPanel<'a> {
         Self {
             state,
             accepts_input,
+            cell_px: 8.4,
         }
     }
 
@@ -156,6 +160,13 @@ impl<'a> EditorPanel<'a> {
         // Capture the full editor rect BEFORE allocating it.
         let editor_rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(editor_rect, Sense::click_and_drag());
+
+        // Soft wrap lines to the visible width (one column kept free for the cursor)
+        self.cell_px = ui
+            .fonts_mut(|f| f.glyph_width(&monospace(), 'M'))
+            .max(1.0);
+        let text_px = editor_rect.width() - MARGIN_WIDTH - self.cell_px;
+        self.state.wrap_cols = ((text_px / self.cell_px).floor() as usize).max(1);
 
         if was_search_active && !self.state.search_active {
             ui.ctx()
@@ -193,8 +204,7 @@ impl<'a> EditorPanel<'a> {
         // Keep the cursor visible after it moved (not while dragging or wheel scrolling)
         if self.state.scroll_to_cursor || self.state.cursor_pos != cursor_before {
             if !self.state.is_dragging {
-                let visible_rows = ((editor_rect.height() / ROW_HEIGHT) as usize).max(1);
-                self.state.ensure_cursor_visible(Some(visible_rows));
+                self.state.ensure_cursor_visible(visible_rows(editor_rect));
             }
             self.state.scroll_to_cursor = false;
         }
@@ -291,17 +301,10 @@ impl<'a> EditorPanel<'a> {
             }
         });
         if scroll_lines != 0.0 {
-            let visible_rows = (editor_rect.height() / ROW_HEIGHT) as usize;
-            let total_lines = self.state.current_buffer().lines.len();
-            let max_scroll = total_lines.saturating_sub(visible_rows);
-            // positive delta.y = content moves down = we scroll UP (show earlier lines)
-            if scroll_lines > 0.0 {
-                let steps = (scroll_lines / 10.0).ceil().max(1.0) as usize * 3;
-                self.state.scroll_offset.0 = self.state.scroll_offset.0.saturating_sub(steps);
-            } else {
-                let steps = (scroll_lines.abs() / 10.0).ceil().max(1.0) as usize * 3;
-                self.state.scroll_offset.0 = (self.state.scroll_offset.0 + steps).min(max_scroll);
-            }
+            // positive delta.y = content moves down = we scroll UP (show earlier rows)
+            let steps = (scroll_lines.abs() / 10.0).ceil().max(1.0) as isize * 3;
+            let delta = if scroll_lines > 0.0 { -steps } else { steps };
+            self.state.scroll_rows(delta, visible_rows(editor_rect));
             ui.ctx().request_repaint();
         }
 
@@ -334,21 +337,10 @@ impl<'a> EditorPanel<'a> {
             }
         }
         if let Some(text) = paste_text {
-            // Compute approximate max columns based on editor_rect width so we emulate TUI wrapping.
-            let text_area_px = (editor_rect.width() - MARGIN_WIDTH).max(0.0);
-            let cell_px = 8.4_f32; // same heuristic used elsewhere
-            let max_cols = (text_area_px / cell_px) as usize;
-
             // insert_text replaces the active selection so we don't duplicate content.
+            // Long lines are soft wrapped on screen, so the text goes in unchanged.
             let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-
-            if max_cols > 0 {
-                let wrapped = wrap_text_to_width(&normalized, max_cols);
-                let joined = wrapped.join("\n");
-                self.state.insert_text(&joined);
-            } else {
-                self.state.insert_text(&normalized);
-            }
+            self.state.insert_text(&normalized);
         }
 
         // Text input
@@ -433,7 +425,7 @@ impl<'a> EditorPanel<'a> {
                 .current_buffer()
                 .lines
                 .get(self.state.cursor_pos.line)
-                .map(|l| l.chars().count())
+                .map(|l| grapheme_len(l))
                 .unwrap_or(0);
             if has_shift {
                 self.start_selection_if_needed();
@@ -501,22 +493,13 @@ impl<'a> EditorPanel<'a> {
             if let Some(pos) = response.interact_pointer_pos() {
                 // Auto-scroll when dragging near top/bottom edge
                 let local_y = pos.y - editor_rect.top();
-                let visible_rows = (editor_rect.height() / ROW_HEIGHT) as usize;
-                let max_scroll = self
-                    .state
-                    .current_buffer()
-                    .lines
-                    .len()
-                    .saturating_sub(visible_rows);
                 let edge = ROW_HEIGHT;
 
-                if local_y < edge && self.state.scroll_offset.0 > 0 {
-                    self.state.scroll_offset.0 = self.state.scroll_offset.0.saturating_sub(1);
+                if local_y < edge {
+                    self.state.scroll_rows(-1, visible_rows(editor_rect));
                     ui.ctx().request_repaint();
-                } else if local_y > editor_rect.height() - edge
-                    && self.state.scroll_offset.0 < max_scroll
-                {
-                    self.state.scroll_offset.0 = (self.state.scroll_offset.0 + 1).min(max_scroll);
+                } else if local_y > editor_rect.height() - edge {
+                    self.state.scroll_rows(1, visible_rows(editor_rect));
                     ui.ctx().request_repaint();
                 }
 
@@ -539,68 +522,29 @@ impl<'a> EditorPanel<'a> {
         }
     }
 
-    // Screen → text position mapping
-    // Uses editor_rect (captured before allocation) for correct coordinate mapping
+    // Screen → text position mapping through the wrapped rows
     fn screen_to_text(&self, editor_rect: Rect, pos: Pos2) -> TextPosition {
-        let row_height = ROW_HEIGHT;
-        let margin_width = MARGIN_WIDTH;
+        let lines = &self.state.current_buffer().lines;
+        let cols = self.state.wrap_cols;
 
-        let raw_line = ((pos.y - editor_rect.top()) / row_height) as isize
-            + self.state.scroll_offset.0 as isize;
-        let line = if raw_line < 0 {
-            0usize
-        } else {
-            (raw_line as usize).min(self.state.current_buffer().lines.len().saturating_sub(1))
-        };
+        let rows_down = ((pos.y - editor_rect.top()) / ROW_HEIGHT).max(0.0) as usize;
+        let rp = wrap::step_forward(lines, cols, self.state.top(), rows_down);
 
-        let column = if let Some(text_line) = self.state.current_buffer().lines.get(line) {
-            let rel_x = (pos.x - editor_rect.left() - margin_width).max(0.0);
-            // Walk characters, accumulating width, and find which one the click lands on.
-            // We don't know exact font metrics here, so we use a fixed cell width per
-            // Unicode column (same as used in render).
-            // A monospace 14px font has ~8.4px per cell — but we query the actual galley
-            // width from egui for accuracy. Without that, we use the character-count
-            // heuristic which is good enough for monospace ASCII and close for unicode.
-            x_to_grapheme_col(rel_x, text_line)
-        } else {
-            0
-        };
+        let rel_x = (pos.x - editor_rect.left() - MARGIN_WIDTH).max(0.0);
+        let x = (rel_x / self.cell_px).round() as usize;
+        let line = lines.get(rp.line).map(String::as_str).unwrap_or("");
 
-        TextPosition { line, column }
+        TextPosition {
+            line: rp.line,
+            column: wrap::col_at_x(line, cols, rp.row, x),
+        }
     }
 
     // Cursor helpers
     fn move_cursor_with_selection(&mut self, dx: isize, dy: isize) {
         self.start_selection_if_needed();
-        self.move_cursor_raw(dx, dy);
+        self.state.move_cursor(dx, dy);
         self.update_selection();
-    }
-
-    fn move_cursor_raw(&mut self, dx: isize, dy: isize) {
-        if dx < 0 && self.state.cursor_pos.column > 0 {
-            self.state.cursor_pos.column -= 1;
-        } else if dx > 0 {
-            let line_len = self
-                .state
-                .current_buffer()
-                .lines
-                .get(self.state.cursor_pos.line)
-                .map(|l| l.chars().count())
-                .unwrap_or(0);
-            if self.state.cursor_pos.column < line_len {
-                self.state.cursor_pos.column += 1;
-            }
-        }
-        if dy < 0 && self.state.cursor_pos.line > 0 {
-            self.state.cursor_pos.line -= 1;
-            self.clamp_column();
-        } else if dy > 0
-            && self.state.cursor_pos.line
-                < self.state.current_buffer().lines.len().saturating_sub(1)
-        {
-            self.state.cursor_pos.line += 1;
-            self.clamp_column();
-        }
     }
 
     fn start_selection_if_needed(&mut self) {
@@ -626,7 +570,7 @@ impl<'a> EditorPanel<'a> {
         self.state.cursor_pos.column = self.state.cursor_pos.column.min(line_len);
     }
 
-    // Rendering
+    // Rendering - each buffer line is drawn as one or more wrapped rows
     fn render_content(&mut self, ui: &mut Ui, rect: Rect) {
         let painter = ui.painter();
 
@@ -637,9 +581,9 @@ impl<'a> EditorPanel<'a> {
             Color32::from_rgb(38, 33, 28),
         );
 
-        let scroll_line = self.state.scroll_offset.0;
-        let visible_rows = (rect.height() / ROW_HEIGHT) as usize + 1;
-        let end_line = (scroll_line + visible_rows).min(self.state.current_buffer().lines.len());
+        let rows_on_screen = (rect.height() / ROW_HEIGHT) as usize + 1;
+        let cols = self.state.wrap_cols;
+        let cursor = self.state.cursor_pos;
 
         let selection_range = self
             .state
@@ -651,54 +595,75 @@ impl<'a> EditorPanel<'a> {
         let filetype = self.state.tab_manager.current_tab().filetype.clone();
         let highlighter = SyntaxHighlighter::new(filetype);
 
-        let buffer_lines: Vec<String> = self.state.current_buffer().lines.clone();
+        let lines = &self.state.current_buffer().lines;
+        let mut top = wrap::clamp_row(lines, cols, self.state.top());
+        let mut screen_row = 0;
 
-        for (visual_idx, line_idx) in (scroll_line..end_line).enumerate() {
-            let y_pos = rect.top() + visual_idx as f32 * ROW_HEIGHT;
+        while screen_row < rows_on_screen {
+            let line_idx = top.line;
+            let Some(line) = lines.get(line_idx) else {
+                break;
+            };
 
-            // Line number
-            painter.text(
-                Pos2::new(rect.left() + 5.0, y_pos),
-                egui::Align2::LEFT_TOP,
-                format!("{:>3}", line_idx + 1),
-                FontId::monospace(12.0),
-                Color32::from_rgb(200, 160, 100),
-            );
+            let tokens = highlighter.highlight_line(line);
+            // Byte offset of every grapheme, plus one past the end
+            let g_bytes: Vec<usize> = line
+                .grapheme_indices(true)
+                .map(|(b, _)| b)
+                .chain(std::iter::once(line.len()))
+                .collect();
+            let g_count = g_bytes.len() - 1;
+            let starts = wrap::row_starts(line, cols);
 
-            if let Some(line) = buffer_lines.get(line_idx) {
-                let tokens = highlighter.highlight_line(line);
+            // Selection on this line, in graphemes
+            let line_sel = selection_range.and_then(|(start, end)| {
+                (line_idx >= start.line && line_idx <= end.line).then(|| {
+                    let s = if line_idx == start.line { start.column } else { 0 };
+                    let e = if line_idx == end.line { end.column } else { g_count };
+                    (s.min(g_count), e.min(g_count))
+                })
+            });
 
-                // Determine selection within this line (in character indices)
-                let (sel_start, sel_end) = if let Some((start, end)) = selection_range {
-                    if line_idx >= start.line && line_idx <= end.line {
-                        let s = if line_idx == start.line {
-                            Some(start.column)
-                        } else {
-                            Some(0)
-                        };
-                        let e = if line_idx == end.line {
-                            Some(end.column)
-                        } else {
-                            Some(line.chars().count())
-                        };
-                        (s, e)
-                    } else {
-                        (None, None)
+            for row in top.row..starts.len() {
+                if screen_row >= rows_on_screen {
+                    break;
+                }
+                let y_pos = rect.top() + screen_row as f32 * ROW_HEIGHT;
+                screen_row += 1;
+
+                if row == 0 {
+                    painter.text(
+                        Pos2::new(rect.left() + 5.0, y_pos),
+                        egui::Align2::LEFT_TOP,
+                        format!("{:>3}", line_idx + 1),
+                        FontId::monospace(12.0),
+                        Color32::from_rgb(200, 160, 100),
+                    );
+                }
+
+                let (g_start, g_end) = wrap::row_range(&starts, row, g_count);
+                let (b_start, b_end) = (g_bytes[g_start], g_bytes[g_end]);
+                let segment = &line[b_start..b_end];
+                // grapheme index on this line -> char index inside the segment
+                let char_idx =
+                    |g: usize| line[b_start..g_bytes[g.clamp(g_start, g_end)]].chars().count();
+
+                let (sel_start, sel_end) = match line_sel {
+                    Some((s, e)) if s < g_end && e > g_start => {
+                        (Some(char_idx(s)), Some(char_idx(e)))
                     }
-                } else {
-                    (None, None)
+                    _ => (None, None),
                 };
 
-                // Build galley via LayoutJob — egui handles all Unicode correctly
-                let job = build_line_galley(line, &tokens, sel_start, sel_end);
+                let row_tokens = slice_tokens(&tokens, b_start, b_end);
+                let job = build_line_galley(segment, &row_tokens, sel_start, sel_end);
                 let galley = painter.layout_job(job);
                 let text_pos = Pos2::new(rect.left() + MARGIN_WIDTH, y_pos);
                 painter.galley(text_pos, galley.clone(), Color32::WHITE);
 
                 // Cursor
-                if self.state.cursor_pos.line == line_idx {
-                    // Use galley cursor position for correct pixel offset
-                    let col = self.state.cursor_pos.column;
+                if cursor.line == line_idx && wrap::row_of(&starts, cursor.column.min(g_count)) == row {
+                    let col = char_idx(cursor.column);
                     let cx = rect.left() + MARGIN_WIDTH + grapheme_col_to_px(&galley, col);
                     painter.line_segment(
                         [Pos2::new(cx, y_pos), Pos2::new(cx, y_pos + ROW_HEIGHT)],
@@ -706,26 +671,35 @@ impl<'a> EditorPanel<'a> {
                     );
                 }
             }
+
+            top = RowPos {
+                line: line_idx + 1,
+                row: 0,
+            };
         }
     }
 }
 
-/// Convert a pixel X offset to a grapheme (character) column index within a line.
-/// Uses a fixed monospace cell width per Unicode column.
-fn x_to_grapheme_col(rel_x: f32, line: &str) -> usize {
-    // For monospace font at 14px, each cell is approximately 8.4px.
-    // This won't be pixel-perfect for wide chars but is correct for ASCII
-    // and reasonable for CJK. We walk characters and pick the closest boundary.
-    let cell_px = 8.4_f32;
-    let mut acc = 0.0f32;
-    for (i, ch) in line.chars().enumerate() {
-        let w = ch.width().unwrap_or(1) as f32 * cell_px;
-        if rel_x < acc + w / 2.0 {
-            return i;
+fn visible_rows(editor_rect: Rect) -> usize {
+    ((editor_rect.height() / ROW_HEIGHT) as usize).max(1)
+}
+
+// The part of the syntax tokens that falls inside byte range [start, end) of the line
+fn slice_tokens(tokens: &[Token], start: usize, end: usize) -> Vec<Token> {
+    let mut out = Vec::new();
+    let mut token_start = 0;
+    for token in tokens {
+        let token_end = token_start + token.text.len();
+        let (s, e) = (token_start.max(start), token_end.min(end));
+        if s < e {
+            out.push(Token {
+                text: token.text[s - token_start..e - token_start].to_string(),
+                token_type: token.token_type,
+            });
         }
-        acc += w;
+        token_start = token_end;
     }
-    line.chars().count()
+    out
 }
 
 /// Convert a character column index to a pixel X offset using the actual rendered galley.

@@ -1,9 +1,6 @@
 // search module for text search functionality
 use super::View;
-use crate::tui::{
-    caret::{Caret, Position},
-    terminal::Terminal,
-};
+use crate::tui::{caret::Caret, terminal::Terminal};
 use crate::core::selection::{Selection, TextPosition};
 use crate::core::search::{find_all_occurrences, find_closest_match, SearchState};
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
@@ -86,11 +83,8 @@ fn perform_search(view: &mut View, caret: &mut Caret, query: &str) -> Result<(),
     }
 
     // Find the match closest to current cursor position
-    let current_pos = caret.get_position();
-    let current_line = (current_pos.y.saturating_sub(Position::HEADER)) as usize + view.scroll_offset;
-    let current_col = (current_pos.x as usize).saturating_sub(Position::MARGIN as usize);
-    
-    let closest_idx = find_closest_match(&matches, current_line, current_col);
+    let current = super::helpers::get_current_text_pos(view, caret);
+    let closest_idx = find_closest_match(&matches, current.line, current.column);
 
     // Store search state in view
     let search_state = SearchState::new(query.to_string(), matches);
@@ -106,16 +100,6 @@ fn perform_search(view: &mut View, caret: &mut Caret, query: &str) -> Result<(),
 fn move_to_current_match(view: &mut View, caret: &mut Caret) -> Result<(), Error> {
     if let Some(search_state) = &view.search_state {
         if let Some(m) = search_state.current_match() {
-            let size = Terminal::get_size()?;
-            let visible_rows = size.height.saturating_sub(Position::HEADER + 1) as usize;
-
-            // Adjust scroll to show the match
-            if m.line < view.scroll_offset {
-                view.scroll_offset = m.line;
-            } else if m.line >= view.scroll_offset + visible_rows {
-                view.scroll_offset = m.line.saturating_sub(visible_rows / 2);
-            }
-
             // Create selection for current match
             let start_pos = TextPosition {
                 line: m.line,
@@ -139,12 +123,10 @@ fn move_to_current_match(view: &mut View, caret: &mut Caret) -> Result<(), Error
                 format!("Match {} of {} | ↑/↓ to navigate", current, total),
             );
 
-            // Move caret to end of match
-            let (screen_x, screen_y) = super::helpers::text_to_screen_pos(view, end_pos);
-            
+            // Move caret to end of match (scrolls it into view)
+            super::helpers::place_caret(view, caret, end_pos)?;
             view.needs_redraw = true;
             view.render(caret)?;
-            caret.move_to(Position { x: screen_x, y: screen_y })?;
             Terminal::execute()?;
         }
     }

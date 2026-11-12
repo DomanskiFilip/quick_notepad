@@ -5,6 +5,7 @@ use crate::core::{
     search::{find_all_occurrences, find_closest_match, SearchState},
     selection::{Selection, TextPosition},
     tabs::TabManager,
+    wrap::{self, RowPos},
 };
 
 use crate::core::graphemes::*;
@@ -14,7 +15,8 @@ pub struct EditorState {
     pub tab_manager: TabManager,
     pub selection: Option<Selection>,
     pub cursor_pos: TextPosition,
-    pub scroll_offset: (usize, usize), // (line, column)
+    pub scroll_offset: (usize, usize), // (top line, wrapped row inside it)
+    pub wrap_cols: usize,              // columns lines are soft wrapped at, set by the editor each frame
     pub search_query: String,
     pub search_active: bool,
     pub search_state: Option<SearchState>,
@@ -49,6 +51,7 @@ impl EditorState {
             selection: None,
             cursor_pos: TextPosition { line: 0, column: 0 },
             scroll_offset: (0, 0),
+            wrap_cols: 80,
             search_query: String::new(),
             search_active: false,
             is_dragging: false,
@@ -257,19 +260,58 @@ impl EditorState {
         self.mark_dirty();
     }
 
+    // dx moves within the line, dy moves by visual (wrapped) rows keeping the screen column
     pub fn move_cursor(&mut self, dx: isize, dy: isize) {
-        let line_count = self.current_buffer().lines.len();
-
-        let mut new_line = self.cursor_pos.line as isize + dy;
-        new_line = new_line.clamp(0, line_count.saturating_sub(1) as isize);
-
-        self.cursor_pos.line = new_line as usize;
+        if dy != 0 {
+            self.cursor_pos = self.vertical_target(dy);
+        }
 
         let line_len = grapheme_len(&self.current_buffer().lines[self.cursor_pos.line]);
-        let mut new_col = self.cursor_pos.column as isize + dx;
-        new_col = new_col.clamp(0, line_len as isize);
-
+        let new_col = (self.cursor_pos.column as isize + dx).clamp(0, line_len as isize);
         self.cursor_pos.column = new_col as usize;
+    }
+
+    fn vertical_target(&self, dy: isize) -> TextPosition {
+        let lines = &self.current_buffer().lines;
+        let cols = self.wrap_cols;
+        let pos = self.cursor_pos;
+        let line = lines.get(pos.line).map(String::as_str).unwrap_or("");
+        let (row, x) = wrap::locate(line, cols, pos.column);
+        let here = RowPos { line: pos.line, row };
+        let next = if dy < 0 {
+            wrap::step_back(lines, cols, here, dy.unsigned_abs())
+        } else {
+            wrap::step_forward(lines, cols, here, dy as usize)
+        };
+        TextPosition {
+            line: next.line,
+            column: wrap::col_at_x(&lines[next.line], cols, next.row, x),
+        }
+    }
+
+    // Viewport top as a visual row
+    pub fn top(&self) -> RowPos {
+        RowPos {
+            line: self.scroll_offset.0,
+            row: self.scroll_offset.1,
+        }
+    }
+
+    pub fn set_top(&mut self, top: RowPos) {
+        let top = wrap::clamp_row(&self.current_buffer().lines, self.wrap_cols, top);
+        self.scroll_offset = (top.line, top.row);
+    }
+
+    // Scroll by visual rows (negative = up)
+    pub fn scroll_rows(&mut self, delta: isize, visible_rows: usize) {
+        let top = wrap::scroll_by(
+            &self.current_buffer().lines,
+            self.wrap_cols,
+            self.top(),
+            delta,
+            visible_rows,
+        );
+        self.set_top(top);
     }
 
     pub fn clamp_cursor(&mut self) {
@@ -595,27 +637,12 @@ impl EditorState {
         self.selection = None;
     }
 
-    // Ensure cursor is visible within the current viewport height (in lines).
-    // visible_rows should be the number of text rows visible in the editor area.
-    pub(in crate::gui) fn ensure_cursor_visible(&mut self, visible_rows: Option<usize>) {
-        let line = self.cursor_pos.line;
-        // If cursor above viewport, jump viewport up
-        if line < self.scroll_offset.0 {
-            self.scroll_offset.0 = line;
-            return;
-        }
-
-        // If caller provided visible_rows, ensure bottom bound as well
-        if let Some(visible_rows) = visible_rows {
-            if visible_rows == 0 {
-                return;
-            }
-
-            if line >= self.scroll_offset.0 + visible_rows {
-                // place cursor roughly in middle of viewport
-                self.scroll_offset.0 = line.saturating_sub(visible_rows / 2);
-            }
-        }
+    // Scroll just enough to keep the cursor's wrapped row inside the viewport.
+    pub(in crate::gui) fn ensure_cursor_visible(&mut self, visible_rows: usize) {
+        let lines = &self.current_buffer().lines;
+        let target = wrap::row_pos_of(lines, self.wrap_cols, self.cursor_pos);
+        let top = wrap::ensure_visible(lines, self.wrap_cols, self.top(), visible_rows, target);
+        self.set_top(top);
     }
 }
 
